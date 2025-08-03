@@ -11,6 +11,7 @@
       background: #28a745;
       color: white;
       border: none;
+      cursor: pointer;
     }
   </style>
 </head>
@@ -19,8 +20,10 @@
 
   <script>
     const params = new URLSearchParams(window.location.search);
-    const text = params.get("text") || "default text";
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(text)}`;
+    const mid = params.get("mid") || "default";
+    const qrData = `/page/5ohrc8rzv8n?mid=${mid}`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrData)}`;
+    const filename = `${mid}.png`;
 
     document.getElementById("download").addEventListener("click", async () => {
       try {
@@ -30,7 +33,7 @@
 
         const a = document.createElement("a");
         a.href = url;
-        a.download = "qr.png";
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
