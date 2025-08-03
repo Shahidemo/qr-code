@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>QR Download</title>
+  <style>
+    button {
+      width: 100%;
+      height: 100vh;
+      font-size: 2em;
+      background: #28a745;
+      color: white;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <button id="download">Download QR</button>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const text = params.get("text") || "default text";
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(text)}`;
+
+    document.getElementById("download").addEventListener("click", async () => {
+      try {
+        const response = await fetch(qrUrl);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "qr.png";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        alert("Failed to download QR code.");
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>
