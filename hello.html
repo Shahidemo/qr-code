@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Document</title>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="content"></div>
+  <button class="no-print" onclick="printWithName()">Print PDF</button>
+
+  <script>
+    let customFileName = "Document";
+
+    // Listen for parent data
+    window.addEventListener("message", (event) => {
+      const data = event.data;
+
+      // Render dynamic content
+      document.getElementById("content").innerHTML = `
+        <h1>Hello ${data.user.name}</h1>
+        <p>Location: ${data.user.address.city}, ${data.user.address.country}</p>
+        <h2>Orders:</h2>
+        <ul>
+          ${data.orders.map(order => `
+            <li>Order #${order.id}: 
+              ${order.items.map(i => `${i.qty} × ${i.product} @ ${i.price}`).join(", ")}
+            </li>
+          `).join("")}
+        </ul>
+        <h3>Total: ${data.totals.grandTotal}</h3>
+      `;
+
+      // Save filename
+      customFileName = data.filename || "Document";
+    });
+
+    // Print with custom filename
+    function printWithName() {
+      document.title = customFileName; // browsers use title for default filename
+      window.print();
+    }
+  </script>
+</body>
+</html>
