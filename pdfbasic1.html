@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Document</title>
+  <style>
+    @media print {
+      .no-print {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1 id="content"></h1>
+  <button class="no-print" onclick="printWithName()">Print PDF</button>
+
+  <script>
+    // Get query params from iframe URL
+    const params = new URLSearchParams(window.location.search);
+    const name = params.get("name") || "Guest";
+    const filename = params.get("filename") || "MyDocument";
+
+    // Show dynamic data
+    document.getElementById("content").innerText = `Hello, ${name}!`;
+
+    // Store for printing
+    function printWithName() {
+      document.title = filename; // Suggests filename for Save-as-PDF
+      window.print();
+    }
+  </script>
+</body>
+</html>
