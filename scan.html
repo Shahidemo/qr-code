@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barcode Scanner</title>
+    <title>Simple Barcode Scanner</title>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
     <style>
         * {
@@ -13,7 +13,7 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
@@ -22,568 +22,282 @@
             padding: 20px;
         }
 
-        .scanner-container {
+        .container {
             background: white;
-            border-radius: 16px;
+            border-radius: 15px;
             padding: 30px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-            max-width: 500px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            max-width: 450px;
             width: 100%;
             text-align: center;
         }
 
-        .scanner-title {
-            font-size: 28px;
-            font-weight: 700;
+        h1 {
             color: #333;
             margin-bottom: 10px;
+            font-size: 24px;
         }
 
-        .scanner-subtitle {
+        p {
             color: #666;
-            margin-bottom: 30px;
-            font-size: 16px;
+            margin-bottom: 25px;
         }
 
-        .scan-button {
-            background: linear-gradient(45deg, #4CAF50, #45a049);
-            color: white;
-            border: none;
+        .btn {
             padding: 15px 30px;
-            font-size: 18px;
-            font-weight: 600;
-            border-radius: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
             cursor: pointer;
-            transition: all 0.3s ease;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+            margin: 5px;
+            transition: transform 0.2s;
         }
 
-        .scan-button:hover {
+        .btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
         }
 
-        .scan-button:disabled {
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn:disabled {
             background: #ccc;
             cursor: not-allowed;
             transform: none;
-            box-shadow: none;
-        }
-
-        .stop-button {
-            background: linear-gradient(45deg, #f44336, #d32f2f);
-            color: white;
-            border: none;
-            padding: 12px 25px;
-            font-size: 16px;
-            font-weight: 600;
-            border-radius: 8px;
-            cursor: pointer;
-            margin: 10px;
-            transition: all 0.3s ease;
-        }
-
-        .stop-button:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 15px rgba(244, 67, 54, 0.3);
         }
 
         #reader {
-            margin: 20px auto;
-            border-radius: 12px;
+            margin: 20px 0;
+            border-radius: 10px;
             overflow: hidden;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
         }
 
-        .status-message {
+        .message {
             margin: 15px 0;
-            padding: 12px;
+            padding: 15px;
             border-radius: 8px;
-            font-weight: 500;
+            font-weight: bold;
         }
 
-        .status-success {
-            background-color: #d4edda;
+        .success {
+            background: #d4edda;
             color: #155724;
             border: 1px solid #c3e6cb;
         }
 
-        .status-error {
-            background-color: #f8d7da;
+        .error {
+            background: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
 
-        .status-info {
-            background-color: #d1ecf1;
+        .info {
+            background: #d1ecf1;
             color: #0c5460;
             border: 1px solid #bee5eb;
         }
 
-        .status-warning {
-            background-color: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeaa7;
-        }
-
-        .scanner-hidden {
+        .hidden {
             display: none;
         }
 
-        .loading-spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #3498db;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-            margin: 10px auto;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .iframe-mode {
-            background: white;
-            min-height: auto;
-            padding: 10px;
-        }
-
-        .iframe-mode .scanner-container {
-            box-shadow: none;
-            padding: 10px;
-        }
-
-        .debug-info {
+        .result {
             background: #f8f9fa;
             border: 1px solid #dee2e6;
             border-radius: 8px;
             padding: 15px;
             margin: 15px 0;
-            font-size: 14px;
-            text-align: left;
         }
 
-        .retry-button {
-            background: linear-gradient(45deg, #ff9800, #f57c00);
-            color: white;
-            border: none;
-            padding: 12px 25px;
-            font-size: 16px;
-            font-weight: 600;
-            border-radius: 8px;
-            cursor: pointer;
-            margin: 10px;
-            transition: all 0.3s ease;
+        .result h3 {
+            margin-bottom: 10px;
+            color: #333;
         }
 
-        .retry-button:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 15px rgba(255, 152, 0, 0.3);
-        }
-
-        @media (max-width: 600px) {
-            .scanner-container {
-                padding: 20px;
-                margin: 10px;
-            }
-            
-            .scanner-title {
-                font-size: 24px;
-            }
+        .result p {
+            word-break: break-all;
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
         }
     </style>
 </head>
 <body>
-    <div class="scanner-container">
-        <h1 class="scanner-title">📱 Barcode Scanner</h1>
-        <p class="scanner-subtitle">Scan QR codes and barcodes instantly</p>
+    <div class="container">
+        <h1>📱 QR Code Scanner</h1>
+        <p>Simple and secure barcode scanning</p>
         
-        <button id="startScan" class="scan-button">
-            🔍 Start Scanning
-        </button>
+        <button id="startBtn" class="btn btn-primary">Start Scanner</button>
+        <button id="stopBtn" class="btn btn-danger hidden">Stop Scanner</button>
         
-        <button id="retryButton" class="retry-button scanner-hidden">
-            🔄 Try Again
-        </button>
-        
-        <div id="loadingSpinner" class="loading-spinner scanner-hidden"></div>
-        
-        <div id="reader" class="scanner-hidden"></div>
-        
-        <button id="stopScan" class="stop-button scanner-hidden">
-            ⏹️ Stop Scanning
-        </button>
-        
-        <div id="statusMessage"></div>
-        
-        <div id="debugInfo" class="debug-info scanner-hidden"></div>
-        
-        <div id="result" class="scanner-hidden">
-            <h3>Scanned Result:</h3>
-            <p id="scannedText"></p>
-        </div>
+        <div id="reader" class="hidden"></div>
+        <div id="message"></div>
+        <div id="result" class="result hidden"></div>
     </div>
 
     <script>
-        class BarcodeScanner {
+        class SimpleScanner {
             constructor() {
-                this.html5QrcodeScanner = null;
+                // Elements
+                this.startBtn = document.getElementById('startBtn');
+                this.stopBtn = document.getElementById('stopBtn');
+                this.readerDiv = document.getElementById('reader');
+                this.messageDiv = document.getElementById('message');
+                this.resultDiv = document.getElementById('result');
+                
+                // Scanner instance
+                this.scanner = null;
                 this.isScanning = false;
                 this.isInIframe = window.self !== window.top;
-                this.retryCount = 0;
-                this.maxRetries = 3;
                 
-                this.initializeElements();
-                this.setupEventListeners();
-                this.checkIframeMode();
-                this.checkEnvironment();
+                // Setup
+                this.setupEvents();
             }
 
-            initializeElements() {
-                this.startButton = document.getElementById('startScan');
-                this.stopButton = document.getElementById('stopScan');
-                this.retryButton = document.getElementById('retryButton');
-                this.readerDiv = document.getElementById('reader');
-                this.statusDiv = document.getElementById('statusMessage');
-                this.resultDiv = document.getElementById('result');
-                this.scannedTextDiv = document.getElementById('scannedText');
-                this.loadingSpinner = document.getElementById('loadingSpinner');
-                this.debugInfoDiv = document.getElementById('debugInfo');
+            setupEvents() {
+                this.startBtn.addEventListener('click', () => this.start());
+                this.stopBtn.addEventListener('click', () => this.stop());
             }
 
-            setupEventListeners() {
-                this.startButton.addEventListener('click', () => this.startScanning());
-                this.stopButton.addEventListener('click', () => this.stopScanning());
-                this.retryButton.addEventListener('click', () => this.retryScanning());
+            showMessage(text, type = 'info') {
+                this.messageDiv.innerHTML = text;
+                this.messageDiv.className = `message ${type}`;
+                this.messageDiv.style.display = 'block';
             }
 
-            checkIframeMode() {
-                if (this.isInIframe) {
-                    document.body.classList.add('iframe-mode');
-                }
+            hideMessage() {
+                this.messageDiv.style.display = 'none';
             }
 
-            async checkEnvironment() {
-                const debugInfo = [];
-                
-                // Check HTTPS
-                debugInfo.push(`Protocol: ${window.location.protocol}`);
-                
-                // Check if it's localhost or secure context
-                debugInfo.push(`Secure Context: ${window.isSecureContext}`);
-                
-                // Check MediaDevices API
-                debugInfo.push(`MediaDevices API: ${!!navigator.mediaDevices}`);
-                debugInfo.push(`getUserMedia: ${!!navigator.mediaDevices?.getUserMedia}`);
-                
-                // Check camera permissions
+            async start() {
                 try {
-                    const permissionStatus = await navigator.permissions.query({ name: 'camera' });
-                    debugInfo.push(`Camera Permission: ${permissionStatus.state}`);
-                } catch (e) {
-                    debugInfo.push(`Camera Permission: Not supported`);
-                }
-                
-                this.debugInfoDiv.innerHTML = debugInfo.join('<br>');
-            }
-
-            showStatus(message, type = 'info') {
-                this.statusDiv.innerHTML = message;
-                this.statusDiv.className = `status-message status-${type}`;
-                this.statusDiv.style.display = 'block';
-            }
-
-            hideStatus() {
-                this.statusDiv.style.display = 'none';
-            }
-
-            showLoading() {
-                this.loadingSpinner.classList.remove('scanner-hidden');
-                this.startButton.disabled = true;
-            }
-
-            hideLoading() {
-                this.loadingSpinner.classList.add('scanner-hidden');
-                this.startButton.disabled = false;
-            }
-
-            showRetryButton() {
-                this.retryButton.classList.remove('scanner-hidden');
-            }
-
-            hideRetryButton() {
-                this.retryButton.classList.add('scanner-hidden');
-            }
-
-            showDebugInfo() {
-                this.debugInfoDiv.classList.remove('scanner-hidden');
-            }
-
-            async retryScanning() {
-                this.retryCount++;
-                this.hideRetryButton();
-                await this.startScanning();
-            }
-
-            async requestCameraPermission() {
-                try {
-                    // Try to access camera to trigger permission request
-                    const stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { 
-                            facingMode: 'environment' // Prefer back camera
-                        } 
-                    });
+                    this.startBtn.disabled = true;
+                    this.showMessage('🔄 Starting camera...', 'info');
                     
-                    // Stop the stream immediately
-                    stream.getTracks().forEach(track => track.stop());
-                    return true;
-                } catch (error) {
-                    console.error('Camera permission error:', error);
-                    return false;
-                }
-            }
-
-            async startScanning() {
-                try {
-                    this.showLoading();
-                    this.hideStatus();
-                    this.hideRetryButton();
-
-                    // Check secure context
-                    if (!window.isSecureContext) {
-                        throw new Error('Camera access requires HTTPS or localhost');
-                    }
-
-                    // Check MediaDevices API
-                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                        throw new Error('Camera API not supported in this browser');
-                    }
-
-                    // Request camera permission explicitly
-                    this.showStatus('🔐 Requesting camera permission...', 'info');
-                    const hasPermission = await this.requestCameraPermission();
+                    // Create scanner
+                    this.scanner = new Html5Qrcode("reader");
                     
-                    if (!hasPermission) {
-                        throw new Error('Camera permission denied or not available');
-                    }
-
-                    // Get available cameras
-                    this.showStatus('📷 Detecting cameras...', 'info');
-                    let cameras;
-                    
-                    try {
-                        cameras = await Html5Qrcode.getCameras();
-                    } catch (cameraError) {
-                        console.error('Error getting cameras:', cameraError);
-                        throw new Error('Failed to detect cameras: ' + cameraError.message);
-                    }
-
-                    if (!cameras || cameras.length === 0) {
-                        throw new Error('No cameras found on this device');
-                    }
-
-                    console.log('Available cameras:', cameras);
-
-                    // Initialize scanner
-                    this.showStatus('🔧 Initializing scanner...', 'info');
-                    this.html5QrcodeScanner = new Html5Qrcode("reader");
-                    
-                    // Scanner configuration
+                    // Simple config
                     const config = {
                         fps: 10,
-                        qrbox: function(viewfinderWidth, viewfinderHeight) {
-                            let minEdgePercentage = 0.7;
-                            let minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-                            let qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
-                            return {
-                                width: qrboxSize,
-                                height: qrboxSize
-                            };
-                        },
-                        aspectRatio: 1.0,
-                        supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]
+                        qrbox: 250
                     };
 
-                    // Try different cameras starting with back camera
-                    let cameraStarted = false;
-                    const cameraIds = cameras.map(camera => camera.id);
-                    
-                    // Prefer environment (back) camera
-                    const backCamera = cameras.find(camera => 
-                        camera.label.toLowerCase().includes('back') || 
-                        camera.label.toLowerCase().includes('environment')
+                    // Start with default camera
+                    await this.scanner.start(
+                        { facingMode: "environment" }, // Try back camera first
+                        config,
+                        (result) => this.onSuccess(result),
+                        (error) => {} // Ignore scanning errors
                     );
-                    
-                    if (backCamera) {
-                        cameraIds.unshift(backCamera.id);
-                    }
 
-                    for (const cameraId of cameraIds) {
-                        try {
-                            this.showStatus(`📷 Starting camera: ${cameras.find(c => c.id === cameraId)?.label || 'Unknown'}`, 'info');
-                            
-                            await this.html5QrcodeScanner.start(
-                                cameraId,
-                                config,
-                                (decodedText, decodedResult) => this.onScanSuccess(decodedText, decodedResult),
-                                (errorMessage) => this.onScanFailure(errorMessage)
-                            );
-                            
-                            cameraStarted = true;
-                            break;
-                        } catch (startError) {
-                            console.warn(`Failed to start camera ${cameraId}:`, startError);
-                            if (cameraId === cameraIds[cameraIds.length - 1]) {
-                                throw startError; // This was the last camera, throw the error
-                            }
-                        }
-                    }
-
-                    if (!cameraStarted) {
-                        throw new Error('Failed to start any available camera');
-                    }
-
+                    // Update UI
                     this.isScanning = true;
-                    this.startButton.classList.add('scanner-hidden');
-                    this.stopButton.classList.remove('scanner-hidden');
-                    this.readerDiv.classList.remove('scanner-hidden');
-                    this.hideLoading();
-                    this.showStatus('✅ Camera active! Point at a QR code or barcode to scan.', 'success');
-                    this.retryCount = 0; // Reset retry count on success
+                    this.startBtn.classList.add('hidden');
+                    this.stopBtn.classList.remove('hidden');
+                    this.readerDiv.classList.remove('hidden');
+                    this.showMessage('✅ Camera ready! Point at a QR code or barcode', 'success');
 
                 } catch (error) {
-                    this.hideLoading();
-                    console.error('Error starting scanner:', error);
+                    console.error('Camera error:', error);
+                    this.startBtn.disabled = false;
                     
-                    let errorMessage = '❌ ';
-                    
-                    if (error.message.includes('Permission denied') || error.message.includes('permission denied')) {
-                        errorMessage += 'Camera access denied. Please click the camera icon in your browser\'s address bar and allow camera access.';
-                    } else if (error.message.includes('HTTPS') || error.message.includes('secure')) {
-                        errorMessage += 'Camera requires HTTPS connection. Please use a secure connection.';
-                    } else if (error.message.includes('No cameras found')) {
-                        errorMessage += 'No camera detected on this device.';
-                    } else if (error.message.includes('Camera API not supported')) {
-                        errorMessage += 'Your browser doesn\'t support camera access. Try updating your browser.';
-                    } else if (error.message.includes('Camera already in use')) {
-                        errorMessage += 'Camera is being used by another application. Please close other camera apps.';
-                    } else if (error.message.includes('not available') || error.message.includes('not found')) {
-                        errorMessage += 'Camera is not available. Check if another app is using it.';
+                    // Simple error handling
+                    let message = '❌ Camera access failed. ';
+                    if (error.name === 'NotAllowedError') {
+                        message += 'Please allow camera permission and try again.';
+                    } else if (error.name === 'NotFoundError') {
+                        message += 'No camera found on this device.';
                     } else {
-                        errorMessage += `Failed to start camera: ${error.message}`;
+                        message += 'Please check camera permissions.';
                     }
                     
-                    this.showStatus(errorMessage, 'error');
-                    this.showDebugInfo();
-                    
-                    // Show retry button if not exceeded max retries
-                    if (this.retryCount < this.maxRetries) {
-                        this.showRetryButton();
-                    }
+                    this.showMessage(message, 'error');
                 }
             }
 
-            async stopScanning() {
+            async stop() {
                 try {
-                    if (this.html5QrcodeScanner && this.isScanning) {
-                        await this.html5QrcodeScanner.stop();
-                        this.html5QrcodeScanner.clear();
+                    if (this.scanner && this.isScanning) {
+                        await this.scanner.stop();
+                        this.scanner.clear();
                     }
                 } catch (error) {
-                    console.error('Error stopping scanner:', error);
+                    console.error('Stop error:', error);
                 } finally {
+                    // Reset UI
                     this.isScanning = false;
-                    this.startButton.classList.remove('scanner-hidden');
-                    this.stopButton.classList.add('scanner-hidden');
-                    this.readerDiv.classList.add('scanner-hidden');
-                    this.hideStatus();
-                    this.hideRetryButton();
+                    this.scanner = null;
+                    this.startBtn.classList.remove('hidden');
+                    this.stopBtn.classList.add('hidden');
+                    this.readerDiv.classList.add('hidden');
+                    this.startBtn.disabled = false;
+                    this.hideMessage();
                 }
             }
 
-            onScanSuccess(decodedText, decodedResult) {
-                console.log('Scan successful:', decodedText);
+            onSuccess(decodedText) {
+                console.log('Scanned:', decodedText);
                 
-                // Stop scanning
-                this.stopScanning();
+                // Stop scanner
+                this.stop();
                 
-                // Show success message
-                this.showStatus(`✅ Successfully scanned: ${decodedText}`, 'success');
+                // Show result
+                this.resultDiv.innerHTML = `
+                    <h3>✅ Scan Successful!</h3>
+                    <p>${decodedText}</p>
+                `;
+                this.resultDiv.classList.remove('hidden');
                 
-                // Display result
-                this.scannedTextDiv.textContent = decodedText;
-                this.resultDiv.classList.remove('scanner-hidden');
+                this.showMessage('🎉 Code scanned successfully! Redirecting...', 'success');
                 
-                // Handle redirection
-                this.handleScanResult(decodedText);
+                // Redirect
+                setTimeout(() => this.redirect(decodedText), 2000);
             }
 
-            onScanFailure(errorMessage) {
-                // Suppress frequent "no code found" messages
-                if (!errorMessage.includes('No QR code found') && !errorMessage.includes('NotFoundException')) {
-                    console.log('Scan error:', errorMessage);
-                }
-            }
-
-            handleScanResult(scannedCode) {
-                const redirectUrl = `https://shahiassets.com/m/scan/results?mid=${encodeURIComponent(scannedCode)}`;
+            redirect(code) {
+                const url = `https://shahiassets.com/m/scan/results?mid=${encodeURIComponent(code)}`;
                 
                 if (this.isInIframe) {
+                    // For iframe (NocoBase)
                     try {
-                        // Send message to parent window
                         window.parent.postMessage({
                             type: 'SCAN_RESULT',
-                            data: {
-                                scannedCode: scannedCode,
-                                redirectUrl: redirectUrl
-                            }
+                            data: { scannedCode: code, redirectUrl: url }
                         }, '*');
                         
-                        // Fallback: try to redirect parent directly after delay
+                        // Fallback
                         setTimeout(() => {
-                            try {
-                                window.parent.location.href = redirectUrl;
-                            } catch (e) {
-                                // If that fails, redirect current window
-                                window.location.href = redirectUrl;
-                            }
-                        }, 1500);
-                        
-                    } catch (error) {
-                        console.error('Error communicating with parent frame:', error);
-                        window.location.href = redirectUrl;
+                            window.parent.location.href = url;
+                        }, 1000);
+                    } catch (e) {
+                        window.location.href = url;
                     }
                 } else {
-                    // Direct redirect for standalone mode
-                    setTimeout(() => {
-                        window.location.href = redirectUrl;
-                    }, 2000);
+                    // Direct redirect
+                    window.location.href = url;
                 }
             }
         }
 
-        // Initialize scanner when DOM is loaded
+        // Initialize when page loads
         document.addEventListener('DOMContentLoaded', () => {
-            window.barcodeScanner = new BarcodeScanner();
+            new SimpleScanner();
         });
 
-        // Handle messages from parent frame
+        // Handle iframe messages
         window.addEventListener('message', (event) => {
-            if (event.data.type === 'START_SCAN' && window.barcodeScanner) {
-                if (!window.barcodeScanner.isScanning) {
-                    window.barcodeScanner.startScanning();
-                }
-            }
-        });
-
-        // Cleanup on page unload
-        window.addEventListener('beforeunload', () => {
-            if (window.barcodeScanner && window.barcodeScanner.isScanning) {
-                window.barcodeScanner.stopScanning();
+            if (event.data.type === 'START_SCAN') {
+                document.getElementById('startBtn').click();
             }
         });
     </script>
