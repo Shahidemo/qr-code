@@ -1,101 +1,41 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QR Code Scanner</title>
-  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <title>QR Scanner</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      padding: 20px;
-      background-color: #f9f9f9;
-    }
-    #reader {
-      width: 300px;
-      margin: auto;
-    }
-    #result {
-      margin-top: 20px;
-      padding: 10px;
-      background: #e8f5e9;
-      border: 1px solid #4caf50;
-      border-radius: 8px;
-      display: none;
-    }
-    button {
-      padding: 10px 15px;
-      margin-top: 10px;
-      cursor: pointer;
-      background-color: #2196f3;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 16px;
-    }
-    button:hover {
-      background-color: #0b7dda;
-    }
+    body { font-family: Arial; text-align: center; }
+    #reader { width: 280px; margin: auto; }
+    #result { margin-top: 10px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #f8f8f8; }
   </style>
 </head>
 <body>
-  <h1>QR Code Scanner</h1>
+  <h3>QR Code Scanner</h3>
   <div id="reader"></div>
-  <div id="result"></div>
-  <button id="startBtn">Start Scanning</button>
-  <button id="stopBtn" disabled>Stop Scanning</button>
+  <div id="result">Scan a QR code...</div>
 
   <script>
-    const reader = new Html5Qrcode("reader");
-    const resultDiv = document.getElementById("result");
-    const startBtn = document.getElementById("startBtn");
-    const stopBtn = document.getElementById("stopBtn");
-    let cameraId = null;
+    function onScanSuccess(decodedText) {
+      document.getElementById("result").innerText = decodedText;
 
-    // Fetch available cameras
+      // Send scanned URL to NocoBase parent window
+      window.parent.postMessage(
+        { type: "QR_SCANNED", url: decodedText },
+        "*"
+      );
+    }
+
+    const html5QrCode = new Html5Qrcode("reader");
     Html5Qrcode.getCameras().then(cameras => {
       if (cameras && cameras.length) {
-        cameraId = cameras.find(c => /back|rear|environment/i.test(c.label))?.id || cameras[0].id;
-      } else {
-        alert("No cameras found!");
+        html5QrCode.start(
+          cameras[0].id,
+          { fps: 10, qrbox: 250 },
+          onScanSuccess
+        );
       }
-    }).catch(err => {
-      alert("Error fetching cameras: " + err);
-    });
-
-    // Start scanning
-    startBtn.addEventListener("click", async () => {
-      if (!cameraId) {
-        alert("No camera detected yet! Please allow camera permission.");
-        return;
-      }
-
-      await reader.start(
-        cameraId,
-        { fps: 10, qrbox: 250 },
-        qrCodeMessage => {
-          resultDiv.style.display = "block";
-          resultDiv.innerHTML = `<strong>Scanned QR:</strong> ${qrCodeMessage}`;
-
-          // ✅ Redirect MAIN NocoBase page, not iframe
-          window.parent.location.href = qrCodeMessage;
-        },
-        errorMessage => {
-          console.warn("QR scan error:", errorMessage);
-        }
-      );
-
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
-    });
-
-    // Stop scanning
-    stopBtn.addEventListener("click", async () => {
-      await reader.stop();
-      startBtn.disabled = false;
-      stopBtn.disabled = true;
-    });
+    }).catch(err => console.error(err));
   </script>
 </body>
 </html>
