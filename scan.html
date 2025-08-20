@@ -1,56 +1,101 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>QR Scanner</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR Code Scanner</title>
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-    #reader { width: 100%; max-width: 400px; margin: auto; }
-    #msg { margin-top: 20px; font-size: 16px; color: #333; }
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+      background-color: #f9f9f9;
+    }
+    #reader {
+      width: 300px;
+      margin: auto;
+    }
+    #result {
+      margin-top: 20px;
+      padding: 10px;
+      background: #e8f5e9;
+      border: 1px solid #4caf50;
+      border-radius: 8px;
+      display: none;
+    }
+    button {
+      padding: 10px 15px;
+      margin-top: 10px;
+      cursor: pointer;
+      background-color: #2196f3;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+    }
+    button:hover {
+      background-color: #0b7dda;
+    }
   </style>
 </head>
 <body>
-  <h2>QR Code Scanner</h2>
+  <h1>QR Code Scanner</h1>
   <div id="reader"></div>
-  <div id="msg">Initializing camera…</div>
+  <div id="result"></div>
+  <button id="startBtn">Start Scanning</button>
+  <button id="stopBtn" disabled>Stop Scanning</button>
 
   <script>
-    // Start scanner when page loads
-    window.onload = function () {
-      const html5QrCode = new Html5Qrcode("reader");
+    const reader = new Html5Qrcode("reader");
+    const resultDiv = document.getElementById("result");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    let cameraId = null;
 
-      // Function called when a QR code is decoded
-      function onScanSuccess(decodedText, decodedResult) {
-        document.getElementById("msg").innerText = "Scanned: " + decodedText;
-        
-        // Stop scanning to free camera
-        html5QrCode.stop().then(() => {
-          // Redirect to nocobase target
-          window.location.href = "https://shahiasssets.com/m/scan?text=" + encodeURIComponent(decodedText);
-        }).catch(err => {
-          console.error("Failed to stop scanning:", err);
-        });
+    // Fetch available cameras
+    Html5Qrcode.getCameras().then(cameras => {
+      if (cameras && cameras.length) {
+        cameraId = cameras.find(c => /back|rear|environment/i.test(c.label))?.id || cameras[0].id;
+      } else {
+        alert("No cameras found!");
+      }
+    }).catch(err => {
+      alert("Error fetching cameras: " + err);
+    });
+
+    // Start scanning
+    startBtn.addEventListener("click", async () => {
+      if (!cameraId) {
+        alert("No camera detected yet! Please allow camera permission.");
+        return;
       }
 
-      Html5Qrcode.getCameras().then(cameras => {
-        if (cameras && cameras.length) {
-          // Use first available camera
-          html5QrCode.start(
-            cameras[0].id,     // Camera ID
-            { fps: 10, qrbox: 250 },
-            onScanSuccess
-          ).catch(err => {
-            document.getElementById("msg").innerText = "Camera start failed: " + err;
-          });
-        } else {
-          document.getElementById("msg").innerText = "No cameras found.";
+      await reader.start(
+        cameraId,
+        { fps: 10, qrbox: 250 },
+        qrCodeMessage => {
+          resultDiv.style.display = "block";
+          resultDiv.innerHTML = `<strong>Scanned QR:</strong> ${qrCodeMessage}`;
+
+          // ✅ Redirect MAIN NocoBase page, not iframe
+          window.parent.location.href = qrCodeMessage;
+        },
+        errorMessage => {
+          console.warn("QR scan error:", errorMessage);
         }
-      }).catch(err => {
-        document.getElementById("msg").innerText = "Camera error: " + err;
-      });
-    };
+      );
+
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+    });
+
+    // Stop scanning
+    stopBtn.addEventListener("click", async () => {
+      await reader.stop();
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    });
   </script>
 </body>
 </html>
