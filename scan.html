@@ -5,37 +5,37 @@
   <title>QR Scanner</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body { font-family: Arial; text-align: center; }
-    #reader { width: 280px; margin: auto; }
-    #result { margin-top: 10px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #f8f8f8; }
+    body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 10px; }
+    #reader { width: 300px; margin: auto; }
+    #result { margin-top: 15px; font-size: 16px; }
   </style>
 </head>
 <body>
-  <h3>QR Code Scanner</h3>
+  <h3>Scan QR Code</h3>
   <div id="reader"></div>
-  <div id="result">Scan a QR code...</div>
+  <div id="result">Scanning...</div>
 
   <script>
     function onScanSuccess(decodedText) {
-      document.getElementById("result").innerText = decodedText;
+      document.getElementById("result").innerText = "Scanned: " + decodedText;
 
-      // Send scanned URL to NocoBase parent window
-      window.parent.postMessage(
-        { type: "QR_SCANNED", url: decodedText },
-        "*"
-      );
+      // ✅ Redirect NocoBase top window to the desired page with scanned value
+      window.top.location.href = "/scan?mid=" + encodeURIComponent(decodedText);
     }
 
-    const html5QrCode = new Html5Qrcode("reader");
-    Html5Qrcode.getCameras().then(cameras => {
-      if (cameras && cameras.length) {
-        html5QrCode.start(
-          cameras[0].id,
-          { fps: 10, qrbox: 250 },
-          onScanSuccess
-        );
-      }
-    }).catch(err => console.error(err));
+    const qr = new Html5Qrcode("reader");
+    Html5Qrcode.getCameras()
+      .then(cameras => {
+        if (cameras && cameras.length) {
+          qr.start(cameras[0].id, { fps: 10, qrbox: 250 }, onScanSuccess);
+        } else {
+          document.getElementById("result").innerText = "No camera found!";
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        document.getElementById("result").innerText = "Camera access error!";
+      });
   </script>
 </body>
 </html>
