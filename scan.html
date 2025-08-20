@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QR Scanner → shahiassets.com</title>
+<style>
+  :root { --bg:#0b1020; --fg:#e7eefc; --muted:#9bb0d3; --accent:#4da3ff; --danger:#ff5a55; }
+  html,body { height:100%; margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; }
+  .wrap { display:grid; place-items:center; min-height:100%; padding:16px; }
+  .card { width:100%; max-width:520px; background:#0f1530; border:1px solid #1e2b55; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.35); overflow:hidden; }
+  .head { padding:16px 18px; border-bottom:1px solid #1e2b55; display:flex; gap:8px; align-items:center; justify-content:space-between; }
+  .title { font-weight:700; letter-spacing:.2px; }
+  .muted { color:var(--muted); font-size:14px; }
+  .body { padding:16px; display:grid; gap:14px; }
+  .videoWrap { position:relative; aspect-ratio:3/4; background:#070b1a; border-radius:12px; overflow:hidden; }
+  video { width:100%; height:100%; object-fit:cover; transform:scaleX(-1); } /* mirror for easier aiming */
+  canvas { display:none; }
+  .overlay {
+    position:absolute; inset:0; pointer-events:none;
+    border:120px solid rgba(0,0,0,.35); border-radius:12px;
+    /* transparent center cutout via clip-path */
+    clip-path: polygon(0 0,100% 0,100% 100%,0 100%,
+                      0 0, calc(50% - 120px) calc(50% - 120px),
+                      calc(50% + 120px) calc(50% - 120px),
+                      calc(50% + 120px) calc(50% + 120px),
+                      calc(50% - 120px) calc(50% + 120px),
+                      calc(50% - 120px) calc(50% - 120px));
+  }
+  .corner { position:absolute; width:46px; height:46px; border:3px solid var(--accent); border-radius:8px; }
+  .c1{top:calc(50% - 120px);left:calc(50% - 120px); border-right:none;border-bottom:none;}
+  .c2{top:calc(50% - 120px);right:calc(50% - 120px); border-left:none;border-bottom:none;}
+  .c3{bottom:calc(50% - 120px);left:calc(50% - 120px); border-right:none;border-top:none;}
+  .c4{bottom:calc(50% - 120px);right:calc(50% - 120px); border-left:none;border-top:none;}
+  .controls { display:flex; gap:10px; flex-wrap:wrap; }
+  button, select {
+    background:#121a3a; color:var(--fg); border:1px solid #26366f;
+    border-radius:10px; padding:10px 12px; font-weight:600; cursor:pointer;
+  }
+  button:hover, select:hover { border-color:#3350a5; }
+  button[disabled]{ opacity:.5; cursor:not-allowed; }
+  .btn-danger { background:#2a0f14; border-color:#5b1f28; color:#ffd6d4; }
+  .status { font-size:14px; line-height:1.4; min-height:1.4em; }
+  .status.error { color:var(--danger); }
+  .footer { padding:12px 16px; border-top:1px solid #1e2b55; display:flex; gap:8px; align-items:center; justify-content:space-between; }
+  .hint { font-size:12px; color:var(--muted); }
+  .link { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card" id="app">
+    <div class="head">
+      <div>
+        <div class="title">Scan machine QR</div>
+        <div class="muted">Redirects to shahiassets.com/m/scan?mid=…</div>
+      </div>
+      <select id="cameraSelect" title="Camera"></select>
+    </div>
+
+    <div class="body">
+      <div class="videoWrap">
+        <video id="video" playsinline autoplay muted></video>
+        <div class="overlay" aria-hidden="true"></div>
+        <div class="corner c1"></div><div class="corner c2"></div>
+        <div class="corner c3"></div><div class="corner c4"></div>
+      </div>
+      <canvas id="canvas"></canvas>
+
+      <div class="controls">
+        <button id="startBtn">Start camera</button>
+        <button id="stopBtn" class="btn-danger" disabled>Stop</button>
+        <button id="torchBtn" disabled>Toggle torch</button>
+      </div>
+
+      <div id="status" class="status">Idle.</div>
+      <div id="error" class="status error"></div>
+    </div>
+
+    <div class="footer">
+      <div class="hint">Tip: grant camera permission and choose the rear camera for best results.</div>
+      <a class="link" href="#" id="testLink">Test with sample ID</a>
+    </div>
+  </div>
+</div>
+
+<!-- Fallback QR decoder (only loaded/used if needed) -->
+<script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+(function(){
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const cameraSelect = document.getElementById('cameraSelect');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn  = document.getElementById('stopBtn');
+  const torchBtn = document.getElementById('torchBtn');
+  const statusEl = document.getElementById('status');
+  const errorEl  = document.getElementById('error');
+  const testLink = document.getElementById('testLink');
+
+  let stream = null;
+  let scanning = false;
+  let rafId = null;
+  let barcodeDetector = null;
+  let torchOn = false;
+  let redirected = false;
+
+  // Helpers
+  function setStatus(msg){ statusEl.textContent = msg; }
+  function setError(msg){ errorEl.textContent = msg || ''; }
+  function canUseBarcodeDetector(){
+    return 'BarcodeDetector' in window && BarcodeDetector.getSupportedFormats
+      ? true : 'BarcodeDetector' in window;
+  }
+  async function initBarcodeDetector(){
+    if (!canUseBarcodeDetector()) return null;
+    try {
+      const formats = (window.BarcodeDetector.getSupportedFormats
+        ? await window.BarcodeDetector.getSupportedFormats()
+        : ['qr_code']);
+      if (!formats.includes('qr_code')) return null;
+      return new window.BarcodeDetector({ formats: ['qr_code'] });
+    } catch { return null; }
+  }
+
+  // Populate cameras
+  async function loadCameras(){
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videos = devices.filter(d => d.kind === 'videoinput');
+      cameraSelect.innerHTML = '';
+      videos.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Camera ${i+1}`;
+        cameraSelect.appendChild(opt);
+      });
+      // Prefer back camera if label hints
+      const back = [...cameraSelect.options].find(o => /back|rear/i.test(o.textContent));
+      if (back) cameraSelect.value = back.value;
+    } catch (e) { setError('Could not list cameras. Start once and retry.'); }
+  }
+
+  async function startCamera(){
+    setError('');
+    try {
+      // If a device is selected, use it. Prefer environment for mobile if none.
+      const deviceId = cameraSelect.value || undefined;
+      const constraints = deviceId
+        ? { video: { deviceId: { exact: deviceId } } }
+        : { video: { facingMode: { ideal: 'environment' } } };
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      await video.play();
+      await loadCameras(); // refresh labels after permission granted
+      scanning = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      torchBtn.disabled = !supportsTorch();
+      setStatus('Scanning… point the QR inside the frame.');
+      scanLoop();
+    } catch (e) {
+      setError('Camera start failed: ' + (e.message || e));
+    }
+  }
+
+  function stopCamera(){
+    scanning = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    if (stream){
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    torchBtn.disabled = true;
+    setStatus('Stopped.');
+  }
+
+  function supportsTorch(){
+    try {
+      const track = stream?.getVideoTracks?.()[0];
+      const capabilities = track?.getCapabilities?.();
+      return !!capabilities && ('torch' in capabilities);
+    } catch { return false; }
+  }
+
+  async function toggleTorch(){
+    try {
+      const track = stream.getVideoTracks()[0];
+      torchOn = !torchOn;
+      await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+      torchBtn.textContent = torchOn ? 'Torch off' : 'Toggle torch';
+    } catch (e) {
+      setError('Torch not supported on this camera.');
+      torchBtn.disabled = true;
+    }
+  }
+
+  function extractMachineId(text){
+    // If QR is just an ID, return it
+    if (/^[A-Za-z0-9._\-:]+$/.test(text)) return text;
+    // If QR is a URL with ?mid=... or /m/scan?mid=...
+    try {
+      const url = new URL(text);
+      const mid = url.searchParams.get('mid');
+      if (mid) return mid;
+      // If encoded in hash (edge case)
+      const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+      if (hashParams.get('mid')) return hashParams.get('mid');
+    } catch { /* not a URL */ }
+    // As a last resort, try to find mid in plain text
+    const m = text.match(/mid=([^&\s#]+)/i);
+    return m ? m[1] : null;
+  }
+
+  function redirectWith(mid){
+    if (redirected) return;
+    redirected = true;
+    const dest = `https://shahiassets.com/m/scan?mid=${encodeURIComponent(mid)}`;
+    setStatus('Opening: ' + dest);
+    // Try busting out of iframe if embedded
+    try {
+      if (window.top && window.top !== window) {
+        window.top.location.href = dest;
+        return;
+      }
+    } catch(_) { /* cross-origin blocked, fallback below */ }
+    window.location.href = dest;
+  }
+
+  async function scanLoop(){
+    if (!scanning) return;
+    // Ensure sizing
+    const vw = video.videoWidth || 640;
+    const vh = video.videoHeight || 480;
+    canvas.width = vw;
+    canvas.height = vh;
+
+    try {
+      if (!barcodeDetector) barcodeDetector = await initBarcodeDetector();
+      if (barcodeDetector){
+        const barcodes = await barcodeDetector.detect(video);
+        if (barcodes && barcodes.length){
+          const raw = barcodes[0].rawValue || barcodes[0].rawValueText || '';
+          const mid = extractMachineId(String(raw).trim());
+          if (mid) { setStatus('QR detected. Redirecting…'); stopCamera(); return redirectWith(mid); }
+        }
+      } else {
+        // Fallback to jsQR
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        if (window.jsQR){
+          const result = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+          if (result && result.data){
+            const mid = extractMachineId(String(result.data).trim());
+            if (mid) { setStatus('QR detected. Redirecting…'); stopCamera(); return redirectWith(mid); }
+          }
+        }
+      }
+    } catch (e) {
+      // Non-fatal; keep trying
+      setError('Scan error (continuing): ' + (e.message || e));
+    }
+    rafId = requestAnimationFrame(scanLoop);
+  }
+
+  // Events
+  startBtn.addEventListener('click', startCamera);
+  stopBtn.addEventListener('click', stopCamera);
+  torchBtn.addEventListener('click', toggleTorch);
+  cameraSelect.addEventListener('change', async () => {
+    if (stream) { stopCamera(); await startCamera(); }
+  });
+  testLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    redirectWith('DEMO-MID-12345');
+  });
+
+  // Boot
+  (async function boot(){
+    if (!('mediaDevices' in navigator)) {
+      setError('This browser does not support camera access.');
+      return;
+    }
+    await loadCameras();
+    setStatus('Ready. Click “Start camera”.');
+  })();
+
+  // Clean up on unload (nice for iframe embeds)
+  window.addEventListener('pagehide', stopCamera);
+})();
+</script>
+</body>
+</html>
