@@ -1,48 +1,58 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Document</title>
-  <style>
-    @media print {
-      .no-print { display: none !important; }
-    }
-  </style>
+  <meta charset="utf-8" />
+  <title>Machine PDF Generator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.7.7/handlebars.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
-  <div id="content"></div>
-  <button class="no-print" onclick="printWithName()">Print PDF</button>
+  <h2>Machine ID PDF Generator</h2>
+  <button id="downloadBtn" style="padding:10px 20px;">Download PDF</button>
 
   <script>
-    let customFileName = "Document";
+    let receivedData = null;
 
-    // Listen for parent data
+    // Listen for data from parent (NocoBase)
     window.addEventListener("message", (event) => {
-      const data = event.data;
-
-      // Render dynamic content
-      document.getElementById("content").innerHTML = `
-        <h1>Hello ${data.user.name}</h1>
-        <p>Location: ${data.user.address.city}, ${data.user.address.country}</p>
-        <h2>Orders:</h2>
-        <ul>
-          ${data.orders.map(order => `
-            <li>Order #${order.id}: 
-              ${order.items.map(i => `${i.qty} × ${i.product} @ ${i.price}`).join(", ")}
-            </li>
-          `).join("")}
-        </ul>
-        <h3>Total: ${data.totals.grandTotal}</h3>
-      `;
-
-      // Save filename
-      customFileName = data.filename || "Document";
+      receivedData = event.data;
+      console.log("Received from parent:", receivedData);
     });
 
-    // Print with custom filename
-    function printWithName() {
-      document.title = customFileName; // browsers use title for default filename
-      window.print();
-    }
+    // PDF generation function
+    document.getElementById("downloadBtn").addEventListener("click", () => {
+      if (!receivedData || !receivedData.machines) {
+        alert("No machine data received yet!");
+        return;
+      }
+
+      // Handlebars template for machine list
+      const source = `
+        <h3>Machine List</h3>
+        <ul>
+        {{#each machines}}
+          <li>Machine ID: {{id}}</li>
+        {{/each}}
+        </ul>
+      `;
+
+      const template = Handlebars.compile(source);
+      const html = template(receivedData);
+
+      // Convert HTML to plain text for PDF
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.setFontSize(14);
+      doc.text("Machine List", 10, 10);
+
+      let y = 20;
+      receivedData.machines.forEach((m, index) => {
+        doc.text(`${index + 1}. Machine ID: ${m.id}`, 10, y);
+        y += 10;
+      });
+
+      doc.save(receivedData.filename + ".pdf");
+    });
   </script>
 </body>
 </html>
