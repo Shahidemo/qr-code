@@ -121,13 +121,10 @@
             border: 1px solid #bee5eb;
         }
 
-        .permission-request {
-            background: #fff3cd;
+        .status-warning {
+            background-color: #fff3cd;
             color: #856404;
             border: 1px solid #ffeaa7;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 15px 0;
         }
 
         .scanner-hidden {
@@ -160,6 +157,34 @@
             padding: 10px;
         }
 
+        .debug-info {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-size: 14px;
+            text-align: left;
+        }
+
+        .retry-button {
+            background: linear-gradient(45deg, #ff9800, #f57c00);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .retry-button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(255, 152, 0, 0.3);
+        }
+
         @media (max-width: 600px) {
             .scanner-container {
                 padding: 20px;
@@ -181,6 +206,10 @@
             🔍 Start Scanning
         </button>
         
+        <button id="retryButton" class="retry-button scanner-hidden">
+            🔄 Try Again
+        </button>
+        
         <div id="loadingSpinner" class="loading-spinner scanner-hidden"></div>
         
         <div id="reader" class="scanner-hidden"></div>
@@ -190,6 +219,8 @@
         </button>
         
         <div id="statusMessage"></div>
+        
+        <div id="debugInfo" class="debug-info scanner-hidden"></div>
         
         <div id="result" class="scanner-hidden">
             <h3>Scanned Result:</h3>
@@ -203,31 +234,61 @@
                 this.html5QrcodeScanner = null;
                 this.isScanning = false;
                 this.isInIframe = window.self !== window.top;
+                this.retryCount = 0;
+                this.maxRetries = 3;
                 
                 this.initializeElements();
                 this.setupEventListeners();
                 this.checkIframeMode();
+                this.checkEnvironment();
             }
 
             initializeElements() {
                 this.startButton = document.getElementById('startScan');
                 this.stopButton = document.getElementById('stopScan');
+                this.retryButton = document.getElementById('retryButton');
                 this.readerDiv = document.getElementById('reader');
                 this.statusDiv = document.getElementById('statusMessage');
                 this.resultDiv = document.getElementById('result');
                 this.scannedTextDiv = document.getElementById('scannedText');
                 this.loadingSpinner = document.getElementById('loadingSpinner');
+                this.debugInfoDiv = document.getElementById('debugInfo');
             }
 
             setupEventListeners() {
                 this.startButton.addEventListener('click', () => this.startScanning());
                 this.stopButton.addEventListener('click', () => this.stopScanning());
+                this.retryButton.addEventListener('click', () => this.retryScanning());
             }
 
             checkIframeMode() {
                 if (this.isInIframe) {
                     document.body.classList.add('iframe-mode');
                 }
+            }
+
+            async checkEnvironment() {
+                const debugInfo = [];
+                
+                // Check HTTPS
+                debugInfo.push(`Protocol: ${window.location.protocol}`);
+                
+                // Check if it's localhost or secure context
+                debugInfo.push(`Secure Context: ${window.isSecureContext}`);
+                
+                // Check MediaDevices API
+                debugInfo.push(`MediaDevices API: ${!!navigator.mediaDevices}`);
+                debugInfo.push(`getUserMedia: ${!!navigator.mediaDevices?.getUserMedia}`);
+                
+                // Check camera permissions
+                try {
+                    const permissionStatus = await navigator.permissions.query({ name: 'camera' });
+                    debugInfo.push(`Camera Permission: ${permissionStatus.state}`);
+                } catch (e) {
+                    debugInfo.push(`Camera Permission: Not supported`);
+                }
+                
+                this.debugInfoDiv.innerHTML = debugInfo.join('<br>');
             }
 
             showStatus(message, type = 'info') {
@@ -250,24 +311,39 @@
                 this.startButton.disabled = false;
             }
 
-            async checkCameraPermission() {
+            showRetryButton() {
+                this.retryButton.classList.remove('scanner-hidden');
+            }
+
+            hideRetryButton() {
+                this.retryButton.classList.add('scanner-hidden');
+            }
+
+            showDebugInfo() {
+                this.debugInfoDiv.classList.remove('scanner-hidden');
+            }
+
+            async retryScanning() {
+                this.retryCount++;
+                this.hideRetryButton();
+                await this.startScanning();
+            }
+
+            async requestCameraPermission() {
                 try {
-                    // Check if camera permission is already granted
-                    const permissionStatus = await navigator.permissions.query({ name: 'camera' });
+                    // Try to access camera to trigger permission request
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                            facingMode: 'environment' // Prefer back camera
+                        } 
+                    });
                     
-                    if (permissionStatus.state === 'denied') {
-                        this.showStatus('❌ Camera access denied. Please enable camera permissions in your browser settings.', 'error');
-                        return false;
-                    }
-
-                    if (permissionStatus.state === 'prompt') {
-                        this.showStatus('📷 Camera permission required. Please allow access when prompted.', 'info');
-                    }
-
+                    // Stop the stream immediately
+                    stream.getTracks().forEach(track => track.stop());
                     return true;
                 } catch (error) {
-                    console.log('Permission API not supported, proceeding with camera access request');
-                    return true;
+                    console.error('Camera permission error:', error);
+                    return false;
                 }
             }
 
@@ -275,66 +351,139 @@
                 try {
                     this.showLoading();
                     this.hideStatus();
+                    this.hideRetryButton();
 
-                    // Check camera permission
-                    const hasPermission = await this.checkCameraPermission();
-                    if (!hasPermission) {
-                        this.hideLoading();
-                        return;
+                    // Check secure context
+                    if (!window.isSecureContext) {
+                        throw new Error('Camera access requires HTTPS or localhost');
                     }
 
-                    // Check if camera is available
-                    const cameras = await Html5Qrcode.getCameras();
+                    // Check MediaDevices API
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('Camera API not supported in this browser');
+                    }
+
+                    // Request camera permission explicitly
+                    this.showStatus('🔐 Requesting camera permission...', 'info');
+                    const hasPermission = await this.requestCameraPermission();
+                    
+                    if (!hasPermission) {
+                        throw new Error('Camera permission denied or not available');
+                    }
+
+                    // Get available cameras
+                    this.showStatus('📷 Detecting cameras...', 'info');
+                    let cameras;
+                    
+                    try {
+                        cameras = await Html5Qrcode.getCameras();
+                    } catch (cameraError) {
+                        console.error('Error getting cameras:', cameraError);
+                        throw new Error('Failed to detect cameras: ' + cameraError.message);
+                    }
+
                     if (!cameras || cameras.length === 0) {
                         throw new Error('No cameras found on this device');
                     }
 
+                    console.log('Available cameras:', cameras);
+
                     // Initialize scanner
+                    this.showStatus('🔧 Initializing scanner...', 'info');
                     this.html5QrcodeScanner = new Html5Qrcode("reader");
                     
-                    // Start scanning with optimized config
+                    // Scanner configuration
                     const config = {
                         fps: 10,
-                        qrbox: { width: 250, height: 250 },
+                        qrbox: function(viewfinderWidth, viewfinderHeight) {
+                            let minEdgePercentage = 0.7;
+                            let minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+                            let qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
+                            return {
+                                width: qrboxSize,
+                                height: qrboxSize
+                            };
+                        },
                         aspectRatio: 1.0,
-                        supportedScanTypes: [
-                            Html5QrcodeScanType.SCAN_TYPE_CAMERA
-                        ]
+                        supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]
                     };
 
-                    // Use the best available camera (usually back camera on mobile)
-                    const cameraId = cameras.length > 1 ? cameras[1].id : cameras[0].id;
-
-                    await this.html5QrcodeScanner.start(
-                        cameraId,
-                        config,
-                        (decodedText, decodedResult) => this.onScanSuccess(decodedText, decodedResult),
-                        (errorMessage) => this.onScanFailure(errorMessage)
+                    // Try different cameras starting with back camera
+                    let cameraStarted = false;
+                    const cameraIds = cameras.map(camera => camera.id);
+                    
+                    // Prefer environment (back) camera
+                    const backCamera = cameras.find(camera => 
+                        camera.label.toLowerCase().includes('back') || 
+                        camera.label.toLowerCase().includes('environment')
                     );
+                    
+                    if (backCamera) {
+                        cameraIds.unshift(backCamera.id);
+                    }
+
+                    for (const cameraId of cameraIds) {
+                        try {
+                            this.showStatus(`📷 Starting camera: ${cameras.find(c => c.id === cameraId)?.label || 'Unknown'}`, 'info');
+                            
+                            await this.html5QrcodeScanner.start(
+                                cameraId,
+                                config,
+                                (decodedText, decodedResult) => this.onScanSuccess(decodedText, decodedResult),
+                                (errorMessage) => this.onScanFailure(errorMessage)
+                            );
+                            
+                            cameraStarted = true;
+                            break;
+                        } catch (startError) {
+                            console.warn(`Failed to start camera ${cameraId}:`, startError);
+                            if (cameraId === cameraIds[cameraIds.length - 1]) {
+                                throw startError; // This was the last camera, throw the error
+                            }
+                        }
+                    }
+
+                    if (!cameraStarted) {
+                        throw new Error('Failed to start any available camera');
+                    }
 
                     this.isScanning = true;
                     this.startButton.classList.add('scanner-hidden');
                     this.stopButton.classList.remove('scanner-hidden');
                     this.readerDiv.classList.remove('scanner-hidden');
                     this.hideLoading();
-                    this.showStatus('📷 Camera active. Position the code within the frame to scan.', 'info');
+                    this.showStatus('✅ Camera active! Point at a QR code or barcode to scan.', 'success');
+                    this.retryCount = 0; // Reset retry count on success
 
                 } catch (error) {
                     this.hideLoading();
                     console.error('Error starting scanner:', error);
                     
-                    let errorMessage = 'Failed to start camera. ';
-                    if (error.message.includes('Permission denied')) {
-                        errorMessage += 'Camera access was denied. Please allow camera permissions and try again.';
+                    let errorMessage = '❌ ';
+                    
+                    if (error.message.includes('Permission denied') || error.message.includes('permission denied')) {
+                        errorMessage += 'Camera access denied. Please click the camera icon in your browser\'s address bar and allow camera access.';
+                    } else if (error.message.includes('HTTPS') || error.message.includes('secure')) {
+                        errorMessage += 'Camera requires HTTPS connection. Please use a secure connection.';
                     } else if (error.message.includes('No cameras found')) {
-                        errorMessage += 'No camera found on this device.';
+                        errorMessage += 'No camera detected on this device.';
+                    } else if (error.message.includes('Camera API not supported')) {
+                        errorMessage += 'Your browser doesn\'t support camera access. Try updating your browser.';
                     } else if (error.message.includes('Camera already in use')) {
-                        errorMessage += 'Camera is being used by another application.';
+                        errorMessage += 'Camera is being used by another application. Please close other camera apps.';
+                    } else if (error.message.includes('not available') || error.message.includes('not found')) {
+                        errorMessage += 'Camera is not available. Check if another app is using it.';
                     } else {
-                        errorMessage += 'Please check your camera permissions and try again.';
+                        errorMessage += `Failed to start camera: ${error.message}`;
                     }
                     
-                    this.showStatus('❌ ' + errorMessage, 'error');
+                    this.showStatus(errorMessage, 'error');
+                    this.showDebugInfo();
+                    
+                    // Show retry button if not exceeded max retries
+                    if (this.retryCount < this.maxRetries) {
+                        this.showRetryButton();
+                    }
                 }
             }
 
@@ -352,6 +501,7 @@
                     this.stopButton.classList.add('scanner-hidden');
                     this.readerDiv.classList.add('scanner-hidden');
                     this.hideStatus();
+                    this.hideRetryButton();
                 }
             }
 
@@ -373,8 +523,8 @@
             }
 
             onScanFailure(errorMessage) {
-                // Suppress frequent error messages to avoid spam
-                if (!errorMessage.includes('No QR code found')) {
+                // Suppress frequent "no code found" messages
+                if (!errorMessage.includes('No QR code found') && !errorMessage.includes('NotFoundException')) {
                     console.log('Scan error:', errorMessage);
                 }
             }
@@ -382,10 +532,9 @@
             handleScanResult(scannedCode) {
                 const redirectUrl = `https://shahiassets.com/m/scan/results?mid=${encodeURIComponent(scannedCode)}`;
                 
-                // If running in iframe (NocoBase), use parent window navigation
                 if (this.isInIframe) {
                     try {
-                        // Try to redirect parent window
+                        // Send message to parent window
                         window.parent.postMessage({
                             type: 'SCAN_RESULT',
                             data: {
@@ -394,18 +543,22 @@
                             }
                         }, '*');
                         
-                        // Fallback: try to redirect parent directly
+                        // Fallback: try to redirect parent directly after delay
                         setTimeout(() => {
-                            window.parent.location.href = redirectUrl;
-                        }, 1000);
+                            try {
+                                window.parent.location.href = redirectUrl;
+                            } catch (e) {
+                                // If that fails, redirect current window
+                                window.location.href = redirectUrl;
+                            }
+                        }, 1500);
                         
                     } catch (error) {
                         console.error('Error communicating with parent frame:', error);
-                        // Last resort: redirect current frame
                         window.location.href = redirectUrl;
                     }
                 } else {
-                    // If not in iframe, redirect current window
+                    // Direct redirect for standalone mode
                     setTimeout(() => {
                         window.location.href = redirectUrl;
                     }, 2000);
@@ -415,15 +568,14 @@
 
         // Initialize scanner when DOM is loaded
         document.addEventListener('DOMContentLoaded', () => {
-            new BarcodeScanner();
+            window.barcodeScanner = new BarcodeScanner();
         });
 
-        // Handle messages from parent frame (for NocoBase integration)
+        // Handle messages from parent frame
         window.addEventListener('message', (event) => {
-            if (event.data.type === 'START_SCAN') {
-                const scanner = window.barcodeScanner;
-                if (scanner && !scanner.isScanning) {
-                    scanner.startScanning();
+            if (event.data.type === 'START_SCAN' && window.barcodeScanner) {
+                if (!window.barcodeScanner.isScanning) {
+                    window.barcodeScanner.startScanning();
                 }
             }
         });
