@@ -5,9 +5,30 @@
   <title>QR Scanner</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 10px; }
-    #reader { width: 300px; margin: auto; }
-    #result { margin-top: 15px; font-size: 16px; }
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 10px;
+      background-color: #f7f7f7;
+    }
+    h3 {
+      margin: 10px 0;
+    }
+    #reader {
+      width: 320px;
+      margin: auto;
+      border: 2px solid #ccc;
+      border-radius: 10px;
+      padding: 10px;
+      background: #fff;
+    }
+    #result {
+      margin-top: 15px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #333;
+    }
   </style>
 </head>
 <body>
@@ -16,18 +37,34 @@
   <div id="result">Scanning...</div>
 
   <script>
+    // This function is triggered when a QR code is successfully scanned
     function onScanSuccess(decodedText) {
       document.getElementById("result").innerText = "Scanned: " + decodedText;
 
-      // ✅ Redirect NocoBase top window to the desired page with scanned value
-      window.top.location.href = "/scan?mid=" + encodeURIComponent(decodedText);
+      // ✅ Force redirect parent NocoBase window
+      try {
+        window.parent.location.href = "/scan?mid=" + encodeURIComponent(decodedText);
+      } catch (e) {
+        console.error("Redirect failed:", e);
+        alert("Redirect blocked! Please open this page in full-screen mode.");
+      }
     }
 
+    // Initialize QR Scanner
     const qr = new Html5Qrcode("reader");
+
     Html5Qrcode.getCameras()
       .then(cameras => {
         if (cameras && cameras.length) {
-          qr.start(cameras[0].id, { fps: 10, qrbox: 250 }, onScanSuccess);
+          // Start scanning from the first camera
+          qr.start(
+            cameras[0].id,
+            {
+              fps: 10,
+              qrbox: { width: 250, height: 250 }
+            },
+            onScanSuccess
+          );
         } else {
           document.getElementById("result").innerText = "No camera found!";
         }
