@@ -21,7 +21,7 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     const mid = params.get("mid") || "default";
-    const qrData = `/page/5ohrc8rzv8n?mid=${mid}`;
+    const qrData = `${mid}`;
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrData)}`;
     const filename = `${mid}.png`;
 
