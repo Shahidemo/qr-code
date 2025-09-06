@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Unit Stats Dashboard</title>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-app.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-database.js";
+
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyAnHHfwRgKh_Ff1RNmIzf8MYZEMrFsyx2Q",
+  authDomain: "shahi-stats-analytics-1.firebaseapp.com",
+  databaseURL: "https://shahi-stats-analytics-1-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "shahi-stats-analytics-1",
+  storageBucket: "shahi-stats-analytics-1.firebasedstorge.app",
+  messagingSenderId: "1079393464814",
+  appId: "1:1079393464814:web:b48822af5f42aa5c91deff",
+  measurementId: "G-XQ5MM7B3M5"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+// DOM references
+const totalMachines = document.getElementById("totalMachines");
+const fields = ["owned","demo","rented","active","breakdown","idle","moving","warranty","nonWarranty","amc","nonAmc"];
+
+// Get unit from URL ?unit=U1
+const urlParams = new URLSearchParams(window.location.search);
+const unitId = urlParams.get("unit") || "U1";
+const divId = urlParams.get("div") || "div1"; // optional, you can hardcode if you want
+
+function updateUI(stats) {
+  totalMachines.textContent = `Total Machines: ${stats.total || 0}`;
+  fields.forEach(f => {
+    const el = document.getElementById(f);
+    if(el) el.textContent = stats[f] || 0;
+  });
+}
+
+// Load unit stats and reactively update
+const unitRef = ref(db, `unitstats/div/${divId}/unit/${unitId}/stats`);
+onValue(unitRef, snap => {
+  if (snap.exists()) updateUI(snap.val());
+});
+</script>
+
+<link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.3.3/dist/tailwind.min.css" rel="stylesheet">
+<style>
+body { font-family: Arial,sans-serif; margin:20px; background:#f8f9fa; }
+#totalMachines { font-size:30px; font-weight:500; color:#154360; margin-bottom:15px; }
+.stats-grid { display:flex; flex-direction:column; gap:15px; }
+.row { display:flex; gap:15px; justify-content:flex-start; padding:12px; border-radius:10px; border:1px solid #e0e0e0; }
+.row.ownership { background:#EBF5FB; }
+.row.status { background:#FEF9E7; }
+.row.other { background:#F5EEF8; }
+.card { flex:1; padding:15px; border-radius:10px; display:flex; align-items:center; justify-content:space-between; box-shadow:0px 2px 6px rgba(0,0,0,0.2); transition:transform 0.2s ease; }
+.card:hover { transform:scale(1.05); }
+.card .label { display:flex; align-items:center; gap:8px; font-size:18px; font-weight:500; }
+.card span { font-size:35px; font-weight:300; }
+.owned { background:#2E86C1; color:white; }
+.demo { background:#6C3483; color:white; }
+.rented { background:#D35400; color:white; }
+.active { background:#28A745; color:white; }
+.breakdown { background:#DC3545; color:white; }
+.idle { background:#FFC107; color:#222; }
+.moving { background:#17A2B8; color:white; }
+.warranty { background:#117A65; color:white; }
+.nonwarranty { background:#7D3C98; color:white; }
+.amc { background:#CA6F1E; color:white; }
+.nonamc { background:#566573; color:white; }
+</style>
+</head>
+<body>
+<h2 id="dashboardTitle">Unit: <span id="unitLabel"></span></h2>
+
+<!-- Total Machines Heading -->
+<div id="totalMachines">Total Machines: 0</div>
+
+<!-- Stats -->
+<div class="stats-grid">
+  <!-- Row 1 Ownership -->
+  <div class="row ownership">
+    <div class="card owned"><div class="label"><i data-lucide="building"></i> Owned</div><span id="owned">0</span></div>
+    <div class="card demo"><div class="label"><i data-lucide="flask-round"></i> Demo</div><span id="demo">0</span></div>
+    <div class="card rented"><div class="label"><i data-lucide="truck"></i> Rented</div><span id="rented">0</span></div>
+  </div>
+  <!-- Row 2 Status -->
+  <div class="row status">
+    <div class="card active"><div class="label"><i data-lucide="play-circle"></i> Active</div><span id="active">0</span></div>
+    <div class="card breakdown"><div class="label"><i data-lucide="alert-triangle"></i> Breakdown</div><span id="breakdown">0</span></div>
+    <div class="card idle"><div class="label"><i data-lucide="pause-circle"></i> Idle</div><span id="idle">0</span></div>
+    <div class="card moving"><div class="label"><i data-lucide="move"></i> Moving</div><span id="moving">0</span></div>
+  </div>
+  <!-- Row 3 Other -->
+  <div class="row other">
+    <div class="card warranty"><div class="label"><i data-lucide="shield-check"></i> Warranty</div><span id="warranty">0</span></div>
+    <div class="card nonwarranty"><div class="label"><i data-lucide="shield-off"></i> Non-Warranty</div><span id="nonWarranty">0</span></div>
+    <div class="card amc"><div class="label"><i data-lucide="file-cog"></i> AMC</div><span id="amc">0</span></div>
+    <div class="card nonamc"><div class="label"><i data-lucide="file-x"></i> Non-AMC</div><span id="nonAmc">0</span></div>
+  </div>
+</div>
+
+<script>
+  // Set unit label in header
+  document.getElementById("unitLabel").textContent = unitId;
+  lucide.createIcons();
+</script>
+</body>
+</html>
