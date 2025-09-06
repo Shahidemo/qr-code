@@ -4,9 +4,11 @@
 <meta charset="UTF-8">
 <title>Machine Stats Dashboard</title>
 <script src="https://unpkg.com/lucide@latest"></script>
+
+<!-- Firebase -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-app.js";
-import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-database.js";
+import { getDatabase, ref, onValue, get } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAnHHfwRgKh_Ff1RNmIzf8MYZEMrFsyx2Q",
@@ -22,19 +24,22 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
+// DOM references
 const nav = document.getElementById("nav");
 const totalMachines = document.getElementById("totalMachines");
+const tableContainer = document.getElementById("machinesTable");
 
 const fields = ["owned","demo","rented","active","breakdown","idle","moving","warranty","nonWarranty","amc","nonAmc"];
 
 let currentDiv = null;
 let currentUnit = null;
 
-function updateUI(stats, label) {
+// --- UI helpers ---
+function updateUI(stats) {
   totalMachines.textContent = `Total Machines: ${stats.total || 0}`;
   fields.forEach(f => {
     const el = document.getElementById(f);
-    if(el) el.textContent = stats[f] || 0;
+    if (el) el.textContent = stats[f] || 0;
   });
 }
 
@@ -45,12 +50,13 @@ function clearNavActive() {
 function buildNav(divId, unitKeys) {
   nav.innerHTML = "";
   const divCard = document.createElement("div");
-  divCard.className = "nav-card active";
+  divCard.className = "nav-card";
   divCard.textContent = divId;
   divCard.onclick = () => {
     currentDiv = divId;
     currentUnit = null;
     loadDiv(divId, divCard);
+    tableContainer.innerHTML = "";
   };
   nav.appendChild(divCard);
 
@@ -62,9 +68,12 @@ function buildNav(divId, unitKeys) {
       currentDiv = divId;
       currentUnit = u;
       loadUnit(divId, u, unitCard);
+      tableContainer.innerHTML = "";
     };
     nav.appendChild(unitCard);
   });
+
+  maintainView(divId, unitKeys);
 }
 
 function loadDiv(divId, el) {
@@ -72,7 +81,7 @@ function loadDiv(divId, el) {
   el.classList.add("active");
   const divRef = ref(db, `divstats/div/${divId}/stats`);
   onValue(divRef, snap => {
-    if (snap.exists()) updateUI(snap.val(), divId);
+    if (snap.exists() && !currentUnit) updateUI(snap.val());
   });
 }
 
@@ -81,7 +90,7 @@ function loadUnit(divId, unitId, el) {
   el.classList.add("active");
   const unitRef = ref(db, `unitstats/div/${divId}/unit/${unitId}/stats`);
   onValue(unitRef, snap => {
-    if (snap.exists()) updateUI(snap.val(), unitId);
+    if (snap.exists() && currentUnit === unitId) updateUI(snap.val());
   });
 }
 
@@ -89,15 +98,154 @@ function maintainView(divId, unitKeys) {
   if (currentUnit && unitKeys.includes(currentUnit)) {
     const activeEl = [...nav.children].find(el => el.textContent === currentUnit);
     if (activeEl) loadUnit(divId, currentUnit, activeEl);
-  } else if (currentDiv === divId) {
+  } else {
+    currentUnit = null;
     const activeEl = [...nav.children].find(el => el.textContent === divId);
     if (activeEl) loadDiv(divId, activeEl);
-  } else {
-    const firstEl = nav.querySelector(".nav-card");
-    if (firstEl) loadDiv(divId, firstEl);
   }
 }
 
+// -------- Machines table --------
+const machinesCache = new Map();
+
+async function fetchMachines(divId, unitId = null) {
+  const cacheKey = `${divId}|${unitId || ""}`;
+  if (machinesCache.has(cacheKey)) return machinesCache.get(cacheKey);
+
+  const baseRef = unitId
+    ? ref(db, `machineslist/div/${divId}/unit/${unitId}`)
+    : ref(db, `machineslist/div/${divId}/unit`);
+
+  const snap = await get(baseRef);
+  const rows = [];
+  if (snap.exists()) {
+    const unitsObj = unitId ? { [unitId]: snap.val() } : snap.val();
+    Object.entries(unitsObj || {}).forEach(([uKey, uVal]) => {
+      const typesObj = uVal?.type || {};
+      Object.entries(typesObj).forEach(([typeName, typeVal]) => {
+        const machinesObj = typeVal?.machines || {};
+        Object.entries(machinesObj).forEach(([machineId, machineVal]) => {
+          const d = machineVal?.data || {};
+          rows.push({
+            machineId,
+            type: d.type || typeName || "",
+            division: d.division || divId,
+            unit: d.unit || uKey,
+            ownership: d.ownership || "",
+            status: d.status || "",
+            has_amc: normalizeYesNo(d.has_amc),
+            warranty: normalizeYesNo(d.warranty ?? d.has_warranty),
+          });
+        });
+      });
+    });
+  }
+  machinesCache.set(cacheKey, rows);
+  return rows;
+}
+
+// ✅ FIXED: return only Yes / No / null
+function normalizeYesNo(v) {
+  if (v === true) return "Yes";
+  if (v === false) return "No";
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (["yes","y","true"].includes(s)) return "Yes";
+    if (["no","n","false"].includes(s)) return "No";
+  }
+  return null;
+}
+
+// ✅ FIXED: only match explicit Yes/No
+function matchesCardFilter(row, key) {
+  switch (key) {
+    case "owned":     return (row.ownership || "").toLowerCase() === "owned";
+    case "demo":      return (row.ownership || "").toLowerCase() === "demo";
+    case "rented":    return (row.ownership || "").toLowerCase() === "rented";
+    case "active":    return (row.status || "").toLowerCase() === "active";
+    case "breakdown": return (row.status || "").toLowerCase() === "breakdown";
+    case "idle":      return (row.status || "").toLowerCase() === "idle";
+    case "moving":    return (row.status || "").toLowerCase() === "moving";
+    case "warranty":     return row.warranty === "Yes";
+    case "nonWarranty":  return row.warranty === "No";
+    case "amc":          return row.has_amc === "Yes";
+    case "nonAmc":       return row.has_amc === "No";
+    default: return true;
+  }
+}
+
+function renderTable(rows, titleText) {
+  if (!rows.length) {
+    tableContainer.innerHTML = `
+      <div class="empty-state">
+        <i data-lucide="list"></i>
+        <p>No machines found for "${titleText}".</p>
+      </div>`;
+    lucide.createIcons();
+    return;
+  }
+  const thead = `
+    <thead>
+      <tr>
+        <th>Machine ID</th>
+        <th>Type</th>
+        <th>Division</th>
+        <th>Unit</th>
+        <th>Ownership</th>
+        <th>Status</th>
+        <th>AMC</th>
+        <th>Warranty</th>
+      </tr>
+    </thead>`;
+  const tbody = rows.map(r => `
+    <tr>
+      <td>${escapeHtml(r.machineId)}</td>
+      <td>${escapeHtml((r.type || "").replace(/,/g,"."))}</td>
+      <td>${escapeHtml(r.division)}</td>
+      <td>${escapeHtml(r.unit)}</td>
+      <td>${escapeHtml(r.ownership)}</td>
+      <td>${escapeHtml(r.status)}</td>
+      <td>${escapeHtml(r.has_amc || "")}</td>
+      <td>${escapeHtml(r.warranty || "")}</td>
+    </tr>`).join("");
+  tableContainer.innerHTML = `
+    <div class="table-wrapper">
+      <div class="table-title">${titleText}</div>
+      <div class="table-scroll">
+        <table class="machines-table">
+          ${thead}
+          <tbody>${tbody}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;")
+    .replace(/'/g,"&#039;");
+}
+
+async function handleCardClick(key, label) {
+  if (!currentDiv) return;
+  const rows = await fetchMachines(currentDiv, currentUnit);
+  const filtered = rows.filter(r => matchesCardFilter(r, key));
+  const scopeText = currentUnit ? `Unit ${currentUnit}` : `Division ${currentDiv}`;
+  const titleText = `${label} — ${scopeText} (${filtered.length})`;
+  renderTable(filtered, titleText);
+}
+
+function wireCardClicks() {
+  document.querySelectorAll(".card[data-key]").forEach(card => {
+    const key = card.getAttribute("data-key");
+    const label = card.querySelector(".label")?.textContent?.trim() || key;
+    card.style.cursor = "pointer";
+    card.addEventListener("click", () => handleCardClick(key, label));
+  });
+}
+
+// --- Init ---
 const urlParams = new URLSearchParams(window.location.search);
 const defaultDiv = urlParams.get("div") || "div1";
 const unitRef = ref(db, `unitstats/div/${defaultDiv}/unit`);
@@ -105,8 +253,9 @@ const unitRef = ref(db, `unitstats/div/${defaultDiv}/unit`);
 onValue(unitRef, snap => {
   const unitKeys = snap.exists() ? Object.keys(snap.val()) : [];
   buildNav(defaultDiv, unitKeys);
-  maintainView(defaultDiv, unitKeys);
 });
+
+document.addEventListener("DOMContentLoaded", wireCardClicks);
 </script>
 
 <link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.3.3/dist/tailwind.min.css" rel="stylesheet">
@@ -137,6 +286,14 @@ body { font-family: Arial,sans-serif; margin:20px; background:#f8f9fa; }
 .nonwarranty { background:#7D3C98; color:white; }
 .amc { background:#CA6F1E; color:white; }
 .nonamc { background:#566573; color:white; }
+.table-wrapper { margin-top:18px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0px 2px 6px rgba(0,0,0,0.08); }
+.table-title { padding:12px 16px; font-weight:600; color:#154360; border-bottom:1px solid #e5e7eb; }
+.table-scroll { max-height:400px; overflow-y:auto; }
+.machines-table { width:100%; border-collapse:separate; border-spacing:0; }
+.machines-table th, .machines-table td { padding:10px 12px; text-align:left; border-bottom:1px solid #f0f0f0; white-space:nowrap; }
+.machines-table thead th { background:#f9fafb; font-weight:700; position:sticky; top:0; z-index:2; }
+.machines-table tr:hover { background:#f8fafc; }
+.empty-state { display:flex; align-items:center; gap:10px; padding:14px 16px; color:#6b7280; }
 </style>
 </head>
 <body>
@@ -148,30 +305,28 @@ body { font-family: Arial,sans-serif; margin:20px; background:#f8f9fa; }
 
 <!-- Stats -->
 <div class="stats-grid">
-  <!-- Row 1 Ownership -->
   <div class="row ownership">
-    <div class="card owned"><div class="label"><i data-lucide="building"></i> Owned</div><span id="owned">0</span></div>
-    <div class="card demo"><div class="label"><i data-lucide="flask-round"></i> Demo</div><span id="demo">0</span></div>
-    <div class="card rented"><div class="label"><i data-lucide="truck"></i> Rented</div><span id="rented">0</span></div>
+    <div class="card owned" data-key="owned"><div class="label"><i data-lucide="building"></i> Owned</div><span id="owned">0</span></div>
+    <div class="card demo" data-key="demo"><div class="label"><i data-lucide="flask-round"></i> Demo</div><span id="demo">0</span></div>
+    <div class="card rented" data-key="rented"><div class="label"><i data-lucide="truck"></i> Rented</div><span id="rented">0</span></div>
   </div>
-  <!-- Row 2 Status -->
   <div class="row status">
-    <div class="card active"><div class="label"><i data-lucide="play-circle"></i> Active</div><span id="active">0</span></div>
-    <div class="card breakdown"><div class="label"><i data-lucide="alert-triangle"></i> Breakdown</div><span id="breakdown">0</span></div>
-    <div class="card idle"><div class="label"><i data-lucide="pause-circle"></i> Idle</div><span id="idle">0</span></div>
-    <div class="card moving"><div class="label"><i data-lucide="move"></i> Moving</div><span id="moving">0</span></div>
+    <div class="card active" data-key="active"><div class="label"><i data-lucide="play-circle"></i> Active</div><span id="active">0</span></div>
+    <div class="card breakdown" data-key="breakdown"><div class="label"><i data-lucide="alert-triangle"></i> Breakdown</div><span id="breakdown">0</span></div>
+    <div class="card idle" data-key="idle"><div class="label"><i data-lucide="pause-circle"></i> Idle</div><span id="idle">0</span></div>
+    <div class="card moving" data-key="moving"><div class="label"><i data-lucide="move"></i> Moving</div><span id="moving">0</span></div>
   </div>
-  <!-- Row 3 Other -->
   <div class="row other">
-    <div class="card warranty"><div class="label"><i data-lucide="shield-check"></i> Warranty</div><span id="warranty">0</span></div>
-    <div class="card nonwarranty"><div class="label"><i data-lucide="shield-off"></i> Non-Warranty</div><span id="nonWarranty">0</span></div>
-    <div class="card amc"><div class="label"><i data-lucide="file-cog"></i> AMC</div><span id="amc">0</span></div>
-    <div class="card nonamc"><div class="label"><i data-lucide="file-x"></i> Non-AMC</div><span id="nonAmc">0</span></div>
+    <div class="card warranty" data-key="warranty"><div class="label"><i data-lucide="shield-check"></i> Warranty</div><span id="warranty">0</span></div>
+    <div class="card nonwarranty" data-key="nonWarranty"><div class="label"><i data-lucide="shield-off"></i> Non-Warranty</div><span id="nonWarranty">0</span></div>
+    <div class="card amc" data-key="amc"><div class="label"><i data-lucide="file-cog"></i> AMC</div><span id="amc">0</span></div>
+    <div class="card nonamc" data-key="nonAmc"><div class="label"><i data-lucide="file-x"></i> Non-AMC</div><span id="nonAmc">0</span></div>
   </div>
 </div>
 
-<script>
-  lucide.createIcons();
-</script>
+<!-- Machines table -->
+<div id="machinesTable"></div>
+
+<script> lucide.createIcons(); </script>
 </body>
 </html>
