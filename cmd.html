@@ -8,7 +8,7 @@
 <!-- Firebase -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-app.js";
-import { getDatabase, ref, onValue, get } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-database.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAnHHfwRgKh_Ff1RNmIzf8MYZEMrFsyx2Q",
@@ -33,10 +33,13 @@ const fields = ["owned","demo","rented","active","breakdown","idle","moving","wa
 
 let currentDiv = null;
 let currentUnit = null;
+let currentFilter = null;
+let currentFilterLabel = null;
+let unsubscribeMachines = null; // holds current machines listener unsubscribe
 
 // --- UI helpers ---
 function updateUI(stats) {
-  totalMachines.textContent = `Total Machines: ${stats.total || 0}`;
+  totalMachines.textContent = Total Machines: ${stats.total || 0};
   fields.forEach(f => {
     const el = document.getElementById(f);
     if (el) el.textContent = stats[f] || 0;
@@ -44,7 +47,7 @@ function updateUI(stats) {
 }
 
 function clearNavActive() {
-  document.querySelectorAll(".nav-card").forEach(el => el.classList.remove("active"));
+  document.querySelectorAll(".nav-card").forEach(el => el.classList.remove("nav-active"));
 }
 
 function buildNav(divId, unitKeys) {
@@ -53,10 +56,12 @@ function buildNav(divId, unitKeys) {
   divCard.className = "nav-card";
   divCard.textContent = divId;
   divCard.onclick = () => {
+    // clicking division resets unit & filter
     currentDiv = divId;
     currentUnit = null;
-    loadDiv(divId, divCard);
-    tableContainer.innerHTML = "";
+    currentFilter = null;
+    currentFilterLabel = null;
+    loadDiv(divId, divCard, true);
   };
   nav.appendChild(divCard);
 
@@ -67,8 +72,9 @@ function buildNav(divId, unitKeys) {
     unitCard.onclick = () => {
       currentDiv = divId;
       currentUnit = u;
-      loadUnit(divId, u, unitCard);
-      tableContainer.innerHTML = "";
+      currentFilter = null;
+      currentFilterLabel = null;
+      loadUnit(divId, u, unitCard, true);
     };
     nav.appendChild(unitCard);
   });
@@ -76,75 +82,101 @@ function buildNav(divId, unitKeys) {
   maintainView(divId, unitKeys);
 }
 
-function loadDiv(divId, el) {
+function loadDiv(divId, el, autoTable = false) {
   clearNavActive();
-  el.classList.add("active");
-  const divRef = ref(db, `divstats/div/${divId}/stats`);
+  el.classList.add("nav-active");
+  const divRef = ref(db, divstats/div/${divId}/stats);
   onValue(divRef, snap => {
-    if (snap.exists() && !currentUnit) updateUI(snap.val());
+    if (snap.exists() && !currentUnit) {
+      updateUI(snap.val());
+      // auto subscribe to machines for this division if asked
+      if (autoTable && !currentFilter) {
+        subscribeMachines(divId, null);
+      }
+    }
   });
 }
 
-function loadUnit(divId, unitId, el) {
+function loadUnit(divId, unitId, el, autoTable = false) {
   clearNavActive();
-  el.classList.add("active");
-  const unitRef = ref(db, `unitstats/div/${divId}/unit/${unitId}/stats`);
+  el.classList.add("nav-active");
+  const unitRef = ref(db, unitstats/div/${divId}/unit/${unitId}/stats);
   onValue(unitRef, snap => {
-    if (snap.exists() && currentUnit === unitId) updateUI(snap.val());
+    if (snap.exists() && currentUnit === unitId) {
+      updateUI(snap.val());
+      if (autoTable && !currentFilter) {
+        subscribeMachines(divId, unitId);
+      }
+    }
   });
 }
 
 function maintainView(divId, unitKeys) {
   if (currentUnit && unitKeys.includes(currentUnit)) {
     const activeEl = [...nav.children].find(el => el.textContent === currentUnit);
-    if (activeEl) loadUnit(divId, currentUnit, activeEl);
+    if (activeEl) loadUnit(divId, currentUnit, activeEl, true);
   } else {
     currentUnit = null;
     const activeEl = [...nav.children].find(el => el.textContent === divId);
-    if (activeEl) loadDiv(divId, activeEl);
+    if (activeEl) loadDiv(divId, activeEl, true);
   }
 }
 
-// -------- Machines table --------
-const machinesCache = new Map();
-
-async function fetchMachines(divId, unitId = null) {
-  const cacheKey = `${divId}|${unitId || ""}`;
-  if (machinesCache.has(cacheKey)) return machinesCache.get(cacheKey);
+// -------- Machines table (live) --------
+// Subscribe to machineslist for the given division/unit and render live
+function subscribeMachines(divId, unitId = null) {
+  // remove previous machines listener if any
+  if (typeof unsubscribeMachines === "function") {
+    try { unsubscribeMachines(); } catch (e) { /* ignore */ }
+    unsubscribeMachines = null;
+  }
 
   const baseRef = unitId
-    ? ref(db, `machineslist/div/${divId}/unit/${unitId}`)
-    : ref(db, `machineslist/div/${divId}/unit`);
+    ? ref(db, machineslist/div/${divId}/unit/${unitId})
+    : ref(db, machineslist/div/${divId}/unit);
 
-  const snap = await get(baseRef);
-  const rows = [];
-  if (snap.exists()) {
-    const unitsObj = unitId ? { [unitId]: snap.val() } : snap.val();
-    Object.entries(unitsObj || {}).forEach(([uKey, uVal]) => {
-      const typesObj = uVal?.type || {};
-      Object.entries(typesObj).forEach(([typeName, typeVal]) => {
-        const machinesObj = typeVal?.machines || {};
-        Object.entries(machinesObj).forEach(([machineId, machineVal]) => {
-          const d = machineVal?.data || {};
-          rows.push({
-            machineId,
-            type: d.type || typeName || "",
-            division: d.division || divId,
-            unit: d.unit || uKey,
-            ownership: d.ownership || "",
-            status: d.status || "",
-            has_amc: normalizeYesNo(d.has_amc),
-            warranty: normalizeYesNo(d.warranty ?? d.has_warranty),
+  // attach new live listener
+  unsubscribeMachines = onValue(baseRef, snap => {
+    const rows = [];
+    if (snap.exists()) {
+      const unitsObj = unitId ? { [unitId]: snap.val() } : snap.val();
+      Object.entries(unitsObj || {}).forEach(([uKey, uVal]) => {
+        const typesObj = uVal?.type || {};
+        Object.entries(typesObj).forEach(([typeName, typeVal]) => {
+          const machinesObj = typeVal?.machines || {};
+          Object.entries(machinesObj).forEach(([machineId, machineVal]) => {
+            const d = machineVal?.data || {};
+            rows.push({
+              machineId,
+              type: d.type || typeName || "",
+              division: d.division || divId,
+              unit: d.unit || uKey,
+              ownership: d.ownership || "",
+              status: d.status || "",
+              has_amc: normalizeYesNo(d.has_amc),
+              warranty: normalizeYesNo(d.warranty ?? d.has_warranty),
+            });
           });
         });
       });
-    });
-  }
-  machinesCache.set(cacheKey, rows);
-  return rows;
+    }
+
+    // If a filter is active, apply it before rendering
+    if (currentFilter) {
+      const filtered = rows.filter(r => matchesCardFilter(r, currentFilter));
+      const scopeText = currentUnit ? Unit ${currentUnit} : Division ${divId};
+      const label = currentFilterLabel || currentFilter;
+      renderTable(filtered, ${label} — ${scopeText} (${filtered.length}));
+    } else {
+      const scopeText = unitId ? Unit ${unitId} : Division ${divId};
+      renderTable(rows, All Machines — ${scopeText} (${rows.length}));
+    }
+  });
+
+  // unsubscribeMachines now contains the function returned by onValue
 }
 
-// ✅ FIXED: return only Yes / No / null
+// Helper: normalize Yes/No values
 function normalizeYesNo(v) {
   if (v === true) return "Yes";
   if (v === false) return "No";
@@ -156,7 +188,6 @@ function normalizeYesNo(v) {
   return null;
 }
 
-// ✅ FIXED: only match explicit Yes/No
 function matchesCardFilter(row, key) {
   switch (key) {
     case "owned":     return (row.ownership || "").toLowerCase() === "owned";
@@ -177,13 +208,17 @@ function matchesCardFilter(row, key) {
 function renderTable(rows, titleText) {
   if (!rows.length) {
     tableContainer.innerHTML = `
-      <div class="empty-state">
-        <i data-lucide="list"></i>
-        <p>No machines found for "${titleText}".</p>
+      <div class="table-wrapper">
+        <div class="table-title">${titleText}</div>
+        <div class="empty-state">
+          <i data-lucide="list"></i>
+          <p>No machines found for "${titleText}".</p>
+        </div>
       </div>`;
     lucide.createIcons();
     return;
   }
+
   const thead = `
     <thead>
       <tr>
@@ -197,6 +232,7 @@ function renderTable(rows, titleText) {
         <th>Warranty</th>
       </tr>
     </thead>`;
+
   const tbody = rows.map(r => `
     <tr>
       <td>${escapeHtml(r.machineId)}</td>
@@ -208,6 +244,7 @@ function renderTable(rows, titleText) {
       <td>${escapeHtml(r.has_amc || "")}</td>
       <td>${escapeHtml(r.warranty || "")}</td>
     </tr>`).join("");
+
   tableContainer.innerHTML = `
     <div class="table-wrapper">
       <div class="table-title">${titleText}</div>
@@ -220,6 +257,7 @@ function renderTable(rows, titleText) {
     </div>`;
 }
 
+// basic HTML escaping
 function escapeHtml(s) {
   return String(s ?? "")
     .replace(/&/g,"&amp;").replace(/</g,"&lt;")
@@ -227,13 +265,13 @@ function escapeHtml(s) {
     .replace(/'/g,"&#039;");
 }
 
-async function handleCardClick(key, label) {
+// When a stat-card is clicked -> set filter and subscribe live
+function handleCardClick(key, label) {
   if (!currentDiv) return;
-  const rows = await fetchMachines(currentDiv, currentUnit);
-  const filtered = rows.filter(r => matchesCardFilter(r, key));
-  const scopeText = currentUnit ? `Unit ${currentUnit}` : `Division ${currentDiv}`;
-  const titleText = `${label} — ${scopeText} (${filtered.length})`;
-  renderTable(filtered, titleText);
+  // set filter & label and resubscribe to machines for current scope
+  currentFilter = key;
+  currentFilterLabel = label;
+  subscribeMachines(currentDiv, currentUnit);
 }
 
 function wireCardClicks() {
@@ -248,44 +286,77 @@ function wireCardClicks() {
 // --- Init ---
 const urlParams = new URLSearchParams(window.location.search);
 const defaultDiv = urlParams.get("div") || "div1";
-const unitRef = ref(db, `unitstats/div/${defaultDiv}/unit`);
+const unitRef = ref(db, unitstats/div/${defaultDiv}/unit);
 
 onValue(unitRef, snap => {
   const unitKeys = snap.exists() ? Object.keys(snap.val()) : [];
   buildNav(defaultDiv, unitKeys);
+
+  // Ensure default division is loaded on first render
+  const activeEl = [...nav.children].find(el => el.textContent === defaultDiv);
+  if (activeEl) {
+    currentDiv = defaultDiv;
+    currentUnit = null;
+    loadDiv(defaultDiv, activeEl, true);
+  }
 });
 
-document.addEventListener("DOMContentLoaded", wireCardClicks);
+// wire card clicks after DOM ready
+document.addEventListener("DOMContentLoaded", () => {
+  wireCardClicks();
+});
+
+// cleanup on page unload
+window.addEventListener("beforeunload", () => {
+  if (typeof unsubscribeMachines === "function") {
+    try { unsubscribeMachines(); } catch(e) { /* ignore */ }
+  }
+});
 </script>
 
 <link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.3.3/dist/tailwind.min.css" rel="stylesheet">
 <style>
 body { font-family: Arial,sans-serif; margin:20px; background:#f8f9fa; }
+
+/* Navigation */
 .nav { display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap; }
 .nav-card { background:#2E86C1; color:white; padding:10px 18px; border-radius:8px; cursor:pointer; font-weight:600; transition:transform 0.2s ease, background 0.2s ease; }
-.nav-card.active { background:#154360; }
+.nav-card.nav-active { background:#154360; }
 .nav-card:hover { transform:scale(1.05); }
+
+/* Dashboard header */
 #totalMachines { font-size:30px; font-weight:500; color:#154360; margin-bottom:15px; }
+
+/* Stats grid */
 .stats-grid { display:flex; flex-direction:column; gap:15px; }
 .row { display:flex; gap:15px; justify-content:flex-start; padding:12px; border-radius:10px; border:1px solid #e0e0e0; }
 .row.ownership { background:#EBF5FB; }
 .row.status { background:#FEF9E7; }
 .row.other { background:#F5EEF8; }
+
 .card { flex:1; padding:15px; border-radius:10px; display:flex; align-items:center; justify-content:space-between; box-shadow:0px 2px 6px rgba(0,0,0,0.2); transition:transform 0.2s ease; }
 .card:hover { transform:scale(1.05); }
 .card .label { display:flex; align-items:center; gap:8px; font-size:18px; font-weight:500; }
 .card span { font-size:35px; font-weight:300; }
+
+/* Ownership */
 .owned { background:#2E86C1; color:white; }
 .demo { background:#6C3483; color:white; }
 .rented { background:#D35400; color:white; }
+
+/* Status */
 .active { background:#28A745; color:white; }
 .breakdown { background:#DC3545; color:white; }
 .idle { background:#FFC107; color:#222; }
 .moving { background:#17A2B8; color:white; }
+
+/* Other */
 .warranty { background:#117A65; color:white; }
 .nonwarranty { background:#7D3C98; color:white; }
 .amc { background:#CA6F1E; color:white; }
 .nonamc { background:#566573; color:white; }
+
+/* Table */
 .table-wrapper { margin-top:18px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0px 2px 6px rgba(0,0,0,0.08); }
 .table-title { padding:12px 16px; font-weight:600; color:#154360; border-bottom:1px solid #e5e7eb; }
 .table-scroll { max-height:400px; overflow-y:auto; }
@@ -293,6 +364,8 @@ body { font-family: Arial,sans-serif; margin:20px; background:#f8f9fa; }
 .machines-table th, .machines-table td { padding:10px 12px; text-align:left; border-bottom:1px solid #f0f0f0; white-space:nowrap; }
 .machines-table thead th { background:#f9fafb; font-weight:700; position:sticky; top:0; z-index:2; }
 .machines-table tr:hover { background:#f8fafc; }
+
+/* Empty state */
 .empty-state { display:flex; align-items:center; gap:10px; padding:14px 16px; color:#6b7280; }
 </style>
 </head>
@@ -330,3 +403,7 @@ body { font-family: Arial,sans-serif; margin:20px; background:#f8f9fa; }
 <script> lucide.createIcons(); </script>
 </body>
 </html>
+
+
+
+cmd
