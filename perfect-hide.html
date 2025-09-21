@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Top Secret — Aggressive</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+<style>
+  html,body{height:100%;margin:0;background:#050505;color:#f5f5f5;font-family:Inter,system-ui,Arial;display:grid;place-items:center}
+  .card{padding:28px;border-radius:12px;background:#111;border:1px solid #4d0000;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1 style="margin:0 0 6px">🚫 TOP SECRET</h1>
+    <div style="opacity:.85">Inspection not allowed.</div>
+  </div>
+
+<script>
+/* ---------- Aggressive anti-inspect & nuke page ---------- */
+/* Note: This is aggressive and may behave oddly in some browsers. */
+
+(function(){
+  // ---------- utilities ----------
+  function safe(fn){ try{ fn(); }catch(e){} }
+  function now(){ return (window.performance && performance.now) ? performance.now() : Date.now(); }
+
+  // ---------- nuke: multiple layered attempts to remove/redirect/close ----------
+  function nuke(trigger) {
+    // Prevent repeated attempts
+    if (nuke._fired) return;
+    nuke._fired = true;
+
+    try { console.clear(); } catch(_) {}
+
+    // 1) Immediately wipe DOM and listeners
+    safe(() => {
+      document.documentElement.innerHTML = '';
+      // remove event listeners by replacing the root node
+      const root = document.createElement('html');
+      document.replaceChild(root, document.documentElement);
+    });
+
+    // 2) Try to replace the current history entry with a blank/data page so "Reload" won't show content
+    // data URL uses an empty HTML with meta that forbids scripts (simple)
+    safe(() => {
+      const safeData = 'data:text/html;charset=utf-8,' + encodeURIComponent(
+        '<meta http-equiv="Content-Security-Policy" content="default-src \'none\';">' +
+        '<title>Blank</title><body></body>'
+      );
+      // Replace current entry (no back entry created)
+      location.replace(safeData);
+    });
+
+    // 3) Immediately also try about:blank replacement (some browsers ignore data: replace in some contexts)
+    safe(() => { try { location.replace('about:blank'); } catch(e){} });
+
+    // 4) Try to fill/overwrite browser history entries so back button loops on blanks
+    // Note: We can't erase entries created before the current page loaded, but we can push many harmless entries and then replace them.
+    safe(() => {
+      try {
+        for (let i = 0; i < 30; i++) {
+          history.pushState({b:i}, '', '#_' + Math.random().toString(36).slice(2,8));
+        }
+        // replace current with about:blank-like minimal
+        history.replaceState({}, '', '#dead');
+      } catch(e){}
+    });
+
+    // 5) Repeated attempts to navigate to a blank page and keep forcing it
+    safe(() => {
+      let tries = 0;
+      const t = setInterval(() => {
+        tries++;
+        try { location.href = 'about:blank'; } catch(e) {}
+        try { location.replace('about:blank'); } catch(e) {}
+        if (tries > 40) clearInterval(t);
+      }, 50);
+    });
+
+    // 6) Attempt to close the window (works only if opened by script)
+    safe(() => {
+      try {
+        window.open('','_self');
+        window.close();
+      } catch(e) {}
+    });
+
+    // 7) Forcibly spin the event loop for a short while (makes page unusable)
+    safe(() => {
+      const start = Date.now();
+      while (Date.now() - start < 250) { /* spin to make it janky */ }
+    });
+
+    // 8) Last resort: navigate to a tiny data: uri that displays nothing
+    safe(() => {
+      try {
+        location.href = 'data:text/html;charset=utf-8,<title>.</title><body></body>';
+      } catch(e) {}
+    });
+
+    // 9) Try to unregister service workers (if any), to be thorough
+    if ('serviceWorker' in navigator) {
+      safe(() => {
+        navigator.serviceWorker.getRegistrations().then(regs => {
+          regs.forEach(r => { try { r.unregister(); } catch(e){} });
+        }).catch(()=>{});
+      });
+    }
+
+    // 10) wipe cookies/localStorage/sessionStorage where possible (may be blocked by CSP)
+    safe(()=>{ try { localStorage.clear(); sessionStorage.clear(); }catch(e){} });
+
+    // 11) final repeated no-op console spam to confuse casual users
+    try {
+      const orig = console.log;
+      for (let i=0;i<20;i++) { try{ console.log(' '); }catch(e){} }
+      // restore (best-effort)
+      console.log = orig;
+    } catch(e) {}
+
+  } // end nuke
+
+  // ---------- aggressive detectors ----------
+  // 1) keyboard interrupt for DevTools
+  document.addEventListener('keydown', function(e){
+    // F12
+    if (e.keyCode === 123) { e.preventDefault(); nuke('F12'); }
+    // Ctrl/Cmd+Shift+I/J/C
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && [73,74,67].indexOf(e.keyCode) !== -1) { e.preventDefault(); nuke('CTRL_SHIFT_XXX'); }
+    // Ctrl/Cmd+U (view source) or Ctrl/Cmd+S (save)
+    if ((e.ctrlKey || e.metaKey) && [85,83].indexOf(e.keyCode) !== -1) { e.preventDefault(); nuke('CTRL_U_S'); }
+  }, {capture:true, passive:false});
+
+  // 2) context menu
+  document.addEventListener('contextmenu', function(e){ e.preventDefault(); nuke('context'); }, {capture:true});
+
+  // 3) detect large outer-inner differences (docked devtools)
+  function devtoolsBySize() {
+    try {
+      const t = 160;
+      return (window.outerWidth - window.innerWidth > t) || (window.outerHeight - window.innerHeight > t);
+    } catch(e) { return false; }
+  }
+
+  // 4) debugger timing trick (will cause a delay when DevTools pauses or steps)
+  function devtoolsByDebugger() {
+    try {
+      const s = now();
+      // placing 'debugger' inside try/catch so we don't break page if it's disabled by CSP
+      try { 
+       
+       // debugger;
+    
+    } catch(e){}
+      return (now() - s) > 120;
+    } catch(e){ return false; }
+  }
+
+  // 5) console-bait getter
+  let baitTriggered = false;
+  const bait = { get trigger(){ baitTriggered = true; nuke('console-bait'); return 'x'; } };
+  Object.defineProperty(window, '__BAIT__', { get: function(){ return bait.trigger; }, configurable: true });
+
+  // 6) rAF jank detector for undocked devtools
+  let rAFJank = false;
+  (function rafTest(prev){
+    requestAnimationFrame(function(t){
+      if (typeof prev === 'number' && (t - prev) > 200) rAFJank = true;
+      rafTest(t);
+    });
+  })();
+
+  // 7) visibility / blur checks
+  window.addEventListener('blur', function(){ setTimeout(()=>{ if (!document.hasFocus()) nuke('blur'); }, 60); }, {capture:true});
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') nuke('hidden'); });
+
+  // 8) periodic sentry checks combining heuristics
+  let tripped = false;
+  setInterval(function(){
+    if (tripped) return;
+    if (devtoolsBySize()) { tripped = true; nuke('size'); return; }
+    if (devtoolsByDebugger()) { tripped = true; nuke('debugger'); return; }
+    if (rAFJank) { tripped = true; nuke('raf'); return; }
+    if (baitTriggered) { tripped = true; nuke('bait'); return; }
+  }, 300);
+
+  // 9) immediate check (in case devtools already open)
+  setTimeout(function(){
+    try {
+      if (devtoolsBySize() || devtoolsByDebugger()) nuke('initial-check');
+    } catch(e){}
+  }, 100);
+
+  // 10) make it uncomfortable to keep trying to inspect: repeated small navigations when mouse enters devtools area
+  // (best-effort) — also used to reduce usefulness of "redo after redirect" by replacing state quickly
+  document.addEventListener('mousemove', function(e){
+    // if pointer is near top/edges (heuristic where devtools may be docked)
+    if (e.clientY < 8 || e.clientX < 8 || e.clientX > (window.innerWidth - 8)) {
+      // brief, non-blocking replace to confuse back/redo
+      try { history.replaceState({}, '', '#_x' + Math.random().toString(36).slice(2,6)); } catch(e){}
+    }
+  }, {passive:true});
+
+  // 11) if user tries to reload or forward/back quickly, also nuke
+  window.addEventListener('beforeunload', function(e){
+    // This won't stop unload, but we can try to quickly nuke before the unload completes
+    nuke('beforeunload');
+  });
+
+  // Expose nuke for manual testing (remove in production if you like)
+  window.__nuke_now__ = nuke;
+
+})(); // end IIFE
+</script>
+</body>
+</html>
